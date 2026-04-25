@@ -555,6 +555,90 @@ Use the Write tool with the absolute path above."
     "$review_file" "compliance fix pass" "$metadata_path"
 }
 
+# Finalize a review: run compliance critic + fix pass if violations,
+# re-critic to confirm, then aggregate per-call metadata into a Run Metadata
+# section appended to the review file.
+#
+# Args:
+#   $1  output_file      (the canonical review file to audit)
+#   $2  sys_prompt_file  (the original review system prompt — for fix pass)
+#   $3  model
+#
+# Reads/mutates script-level globals:
+#   META_FILES   array of per-call metadata JSON paths (caller appends to this)
+#   CALL_LABELS  array of human labels matching META_FILES (caller appends)
+#
+# Side effects:
+#   - May append additional metadata files / labels for critic, fix, re-critic
+#   - On success, calls aggregate_metadata.py to inject Run Metadata section
+#   - Cleans up metadata JSON files after aggregation
+#
+# Returns 0 on success (review may still have unfixable violations), nonzero
+# only on hard error in the helper itself.
+finalize_review() {
+  local output_file="$1"
+  local sys_prompt_file="$2"
+  local model="$3"
+
+  # Compliance critic + fix pass (skipped if NO_CRITIC=1 or codex-only path)
+  if [[ "$NO_CRITIC" != "1" ]]; then
+    local audit_file="${output_file}.audit.md"
+    local meta_critic="${output_file}.metadata.critic.json"
+    if invoke_critic "$output_file" "$model" "$audit_file" "$meta_critic"; then
+      META_FILES+=( "$meta_critic" )
+      CALL_LABELS+=( "critic" )
+
+      if grep -q "^STATUS: PASS" "$audit_file" 2>/dev/null; then
+        echo "Compliance critic: PASS" >&2
+        rm -f "$audit_file"
+      elif grep -q "^STATUS: VIOLATIONS_FOUND" "$audit_file" 2>/dev/null; then
+        local v_count
+        v_count=$(grep -c "^### " "$audit_file" 2>/dev/null || echo "?")
+        echo "Compliance critic: ${v_count} violation(s) — running fix pass..." >&2
+        local meta_fix="${output_file}.metadata.fix.json"
+        if invoke_fix_pass "$output_file" "$audit_file" "$sys_prompt_file" \
+                           "$model" "$meta_fix"; then
+          META_FILES+=( "$meta_fix" )
+          CALL_LABELS+=( "fix" )
+          # Re-critic to verify the fix landed
+          local audit_file2="${output_file}.audit2.md"
+          local meta_recritic="${output_file}.metadata.recritic.json"
+          if invoke_critic "$output_file" "$model" "$audit_file2" "$meta_recritic"; then
+            META_FILES+=( "$meta_recritic" )
+            CALL_LABELS+=( "re-critic" )
+            if grep -q "^STATUS: PASS" "$audit_file2" 2>/dev/null; then
+              echo "Compliance critic (post-fix): PASS" >&2
+              rm -f "$audit_file" "$audit_file2"
+            else
+              local r_count
+              r_count=$(grep -c "^### " "$audit_file2" 2>/dev/null || echo "?")
+              echo "Compliance critic (post-fix): ${r_count} violation(s) remain. Audit at $audit_file2" >&2
+              rm -f "$audit_file"
+            fi
+          fi
+        else
+          echo "Warning: fix pass failed; original violations remain. Audit at $audit_file" >&2
+        fi
+      else
+        echo "Compliance critic: unexpected output. Audit at $audit_file" >&2
+      fi
+    else
+      echo "Warning: compliance critic invocation failed; skipping audit" >&2
+      rm -f "$audit_file"
+    fi
+  fi
+
+  # Aggregate per-call metadata into one cumulative Run Metadata section
+  if [[ ${#META_FILES[@]} -gt 0 && -f "$SKILL_DIR/tools/aggregate_metadata.py" ]]; then
+    python3 "$SKILL_DIR/tools/aggregate_metadata.py" \
+        --review-file "$output_file" \
+        --metadata-files "${META_FILES[@]}" \
+        --call-labels "${CALL_LABELS[@]}" \
+        2>&1 || echo "Warning: metadata aggregation failed; review file untouched" >&2
+    rm -f "${META_FILES[@]}"
+  fi
+}
+
 # Validate that a written output file has real content (frontmatter + body).
 # Usage: validate_output <path>
 validate_output() {
@@ -683,11 +767,20 @@ protocol in the system prompt exactly."
 
   echo "Consolidating ${#NUMBERED_FILES[@]} review(s) → ${CANONICAL_OUT}"
 
+  # Per-call metadata aggregator: track all claude calls made during
+  # consolidation (synthesis, optional critic, optional fix pass, re-critic).
+  META_FILES=()
+  CALL_LABELS=()
+
   if [[ "$CONSOL_REVIEWER" == "claude" ]]; then
+    META_CONSOL="${CANONICAL_OUT}.metadata.consolidation.json"
     invoke_claude_with_retry \
       "$SYSTEM_PROMPT_FILE" "$CONSOLIDATE_PROMPT" "$MODEL" \
       "$CANONICAL_OUT" "consolidation step" \
+      "$META_CONSOL" \
       || exit 1
+    META_FILES+=( "$META_CONSOL" )
+    CALL_LABELS+=( "consolidation" )
   else
     claim_file "$CANONICAL_OUT" "Consolidator" "$MODEL"
     invoke_codex "$SYSTEM_PROMPT_FILE" "$CONSOLIDATE_PROMPT" "$MODEL" || {
@@ -695,6 +788,12 @@ protocol in the system prompt exactly."
       rm -f "$CANONICAL_OUT"
       exit 1
     }
+  fi
+
+  # Compliance critic + fix pass + cumulative metadata aggregation.
+  # Skip for codex-only path (no programmatic Write detection on codex).
+  if [[ "$CONSOL_REVIEWER" == "claude" ]]; then
+    finalize_review "$CANONICAL_OUT" "$SYSTEM_PROMPT_FILE" "$MODEL"
   fi
 
   if ! validate_output "$CANONICAL_OUT"; then
@@ -898,10 +997,10 @@ Follow the system prompt structure exactly."
   echo "Invoking ${REVIEWER_LABEL} ${REVIEW_TYPE} reviewer (model: ${MODEL}) for '${PROJECT_ID}'..."
   echo "Output: ${OUTPUT_FILE}"
 
-  # Track per-call metadata files for the cumulative aggregator.
-  META_MAIN="${OUTPUT_FILE}.metadata.main.json"
+  # Per-call metadata aggregator: track all claude calls made for this review.
   META_FILES=()
   CALL_LABELS=()
+  META_MAIN="${OUTPUT_FILE}.metadata.main.json"
 
   if [[ "$REVIEWER" == "claude" ]]; then
     invoke_claude_with_retry \
@@ -922,61 +1021,10 @@ Follow the system prompt structure exactly."
     }
   fi
 
-  # Compliance critic + fix pass (claude-only; codex doesn't have programmatic
-  # Write detection so we skip it for now).
-  if [[ "$NO_CRITIC" != "1" && "$REVIEWER" == "claude" ]]; then
-    AUDIT_FILE="${OUTPUT_FILE}.audit.md"
-    META_CRITIC="${OUTPUT_FILE}.metadata.critic.json"
-    if invoke_critic "$OUTPUT_FILE" "$MODEL" "$AUDIT_FILE" "$META_CRITIC"; then
-      META_FILES+=( "$META_CRITIC" )
-      CALL_LABELS+=( "critic" )
-      if grep -q "^STATUS: PASS" "$AUDIT_FILE" 2>/dev/null; then
-        echo "Compliance critic: PASS" >&2
-        rm -f "$AUDIT_FILE"
-      elif grep -q "^STATUS: VIOLATIONS_FOUND" "$AUDIT_FILE" 2>/dev/null; then
-        VIOLATION_COUNT=$(grep -c "^### " "$AUDIT_FILE" 2>/dev/null || echo "?")
-        echo "Compliance critic: ${VIOLATION_COUNT} violation(s) — running fix pass..." >&2
-        META_FIX="${OUTPUT_FILE}.metadata.fix.json"
-        if invoke_fix_pass "$OUTPUT_FILE" "$AUDIT_FILE" "$SYSTEM_PROMPT_FILE" "$MODEL" "$META_FIX"; then
-          META_FILES+=( "$META_FIX" )
-          CALL_LABELS+=( "fix" )
-          # Re-run critic to confirm fix landed
-          AUDIT_FILE2="${OUTPUT_FILE}.audit2.md"
-          META_RECRITIC="${OUTPUT_FILE}.metadata.recritic.json"
-          if invoke_critic "$OUTPUT_FILE" "$MODEL" "$AUDIT_FILE2" "$META_RECRITIC"; then
-            META_FILES+=( "$META_RECRITIC" )
-            CALL_LABELS+=( "re-critic" )
-            if grep -q "^STATUS: PASS" "$AUDIT_FILE2" 2>/dev/null; then
-              echo "Compliance critic (post-fix): PASS" >&2
-              rm -f "$AUDIT_FILE" "$AUDIT_FILE2"
-            else
-              REMAINING=$(grep -c "^### " "$AUDIT_FILE2" 2>/dev/null || echo "?")
-              echo "Compliance critic (post-fix): ${REMAINING} violation(s) remain. Review may need manual review." >&2
-              echo "  Audit log preserved at: $AUDIT_FILE2" >&2
-              rm -f "$AUDIT_FILE"
-            fi
-          fi
-        else
-          echo "Warning: fix pass failed; original violations remain. Audit at $AUDIT_FILE" >&2
-        fi
-      else
-        echo "Compliance critic: unexpected output (neither PASS nor VIOLATIONS_FOUND). Audit at $AUDIT_FILE" >&2
-      fi
-    else
-      echo "Warning: compliance critic invocation failed; skipping audit" >&2
-      rm -f "$AUDIT_FILE"
-    fi
-  fi
-
-  # Aggregate per-call metadata into one cumulative Run Metadata section
-  # appended to the review file.
-  if [[ ${#META_FILES[@]} -gt 0 && -f "$SKILL_DIR/tools/aggregate_metadata.py" ]]; then
-    python3 "$SKILL_DIR/tools/aggregate_metadata.py" \
-        --review-file "$OUTPUT_FILE" \
-        --metadata-files "${META_FILES[@]}" \
-        --call-labels "${CALL_LABELS[@]}" \
-        2>&1 || echo "Warning: metadata aggregation failed; review file untouched" >&2
-    rm -f "${META_FILES[@]}"
+  # Compliance critic + fix pass + cumulative metadata aggregation.
+  # Skip for codex-only path (no programmatic Write detection on codex).
+  if [[ "$REVIEWER" == "claude" ]]; then
+    finalize_review "$OUTPUT_FILE" "$SYSTEM_PROMPT_FILE" "$MODEL"
   fi
 
   if ! validate_output "$OUTPUT_FILE"; then
@@ -1058,13 +1106,20 @@ claim_file "$CODEX_INT" "Codex" "$CODEX_MODEL"
 
 echo "Fusion review: running Claude (${CLAUDE_MODEL}) and Codex (${CODEX_MODEL}) in parallel..."
 
+# Per-call metadata aggregator: track all claude calls made during the
+# fusion pipeline. Codex calls don't generate metadata (no stream parser).
+META_FILES=()
+CALL_LABELS=()
+META_CLAUDE_INT="${CLAUDE_INT}.metadata.json"
+META_FUSION="${FUSED_OUT}.metadata.fusion.json"
+
 # Run both in parallel; capture PIDs and rc's.
 # Claude side uses retry helper (silent-failure detection + retry).
 # Codex side has no programmatic Write detection so no retry.
 (
   invoke_claude_with_retry \
     "$SYSTEM_PROMPT_FILE" "$CLAUDE_REVIEW_PROMPT" "$CLAUDE_MODEL" \
-    "$CLAUDE_INT" "Claude reviewer (fusion)" >/dev/null
+    "$CLAUDE_INT" "Claude reviewer (fusion)" "$META_CLAUDE_INT" >/dev/null
 ) &
 CLAUDE_PID=$!
 
@@ -1086,6 +1141,13 @@ fi
 
 validate_output "$CLAUDE_INT" || { rm -f "$CLAUDE_INT" "$CODEX_INT"; exit 1; }
 validate_output "$CODEX_INT" || { rm -f "$CLAUDE_INT" "$CODEX_INT"; exit 1; }
+
+# Both intermediate reviews succeeded; the claude side wrote per-call
+# metadata (codex didn't — no parser).
+if [[ -f "$META_CLAUDE_INT" ]]; then
+  META_FILES+=( "$META_CLAUDE_INT" )
+  CALL_LABELS+=( "claude-intermediate" )
+fi
 
 echo "Both source reviews complete. Fusing..."
 
@@ -1112,7 +1174,16 @@ FUSION_MODEL="${CLAUDE_MODEL}"  # Use claude for fusion step.
 invoke_claude_with_retry \
   "$FUSION_SYS" "$FUSION_PROMPT" "$FUSION_MODEL" \
   "$FUSED_OUT" "fusion step" \
+  "$META_FUSION" \
   || exit 1
+META_FILES+=( "$META_FUSION" )
+CALL_LABELS+=( "fusion" )
+
+# Compliance critic + fix pass + cumulative metadata aggregation against
+# the fused review. The fused review uses the original review-type system
+# prompt for the fix pass (so the fixer knows what compliant output looks
+# like for the underlying review type, not for fusion synthesis).
+finalize_review "$FUSED_OUT" "$SYSTEM_PROMPT_FILE" "$FUSION_MODEL"
 
 if ! validate_output "$FUSED_OUT"; then
   rm -f "$FUSED_OUT"
