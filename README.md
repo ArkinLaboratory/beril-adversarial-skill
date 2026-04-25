@@ -18,17 +18,39 @@ will iterate as the skill is used.
 ## Install
 
 ```bash
-pipx install git+ssh://git@github.com/ArkinLaboratory/beril-adversarial-skill.git
+# HTTPS (works on shared hosts where SSH keys aren't registered with GitHub —
+# e.g. JupyterHub instances; relies on a credential helper or a PAT)
+pipx install --force git+https://github.com/ArkinLaboratory/beril-adversarial-skill.git
+
 cd <BERIL_ROOT>
 beril-adversarial install-skill .
 beril-adversarial configure   # sanity-check claude/codex CLIs
 ```
+
+If you have an SSH key registered with the ArkinLaboratory GitHub org, the
+SSH URL also works (and avoids needing a credential helper):
+
+```bash
+pipx install --force git+ssh://git@github.com/ArkinLaboratory/beril-adversarial-skill.git
+```
+
+The `git@` is mandatory — `git+ssh://github.com/...` (without it) fails
+auth on private repos.
+
+`pipx ensurepath` once after a fresh pipx install if `pipx` writes its
+bin dir to a PATH location that isn't on your `$PATH` yet, then `exec
+$SHELL -l` to reload.
 
 The first command installs the Python CLI. The second copies the
 Claude Code skill into `<BERIL_ROOT>/.claude/skills/beril-adversarial/`.
 The third confirms `claude` is on PATH and reports whether `codex` is
 also available (codex is optional; needed for `--reviewer codex` and
 `--reviewer claude,codex` fusion).
+
+`install-skill` is idempotent: re-running it overwrites the shipped files
+(`commands/`, `prompts/`, `references/`, `tools/`, `SKILL.md`) but
+preserves `state/` (learned-patterns memory). To upgrade after a new
+release: `pipx upgrade beril-adversarial-skill && beril-adversarial install-skill <BERIL_ROOT>`.
 
 ## Usage
 

@@ -21,7 +21,12 @@ If the command is not found, tell the user:
 
 > The `beril-adversarial` package isn't on your PATH. Install it with:
 >
->     pipx install git+ssh://git@github.com/ArkinLaboratory/beril-adversarial-skill.git
+>     pipx install --force git+https://github.com/ArkinLaboratory/beril-adversarial-skill.git
+>
+> If you have an SSH key registered with GitHub you can also use the
+> SSH URL — note the explicit `git@`, which is required:
+>
+>     pipx install --force git+ssh://git@github.com/ArkinLaboratory/beril-adversarial-skill.git
 >
 > Then run `beril-adversarial install-skill .` from your BERIL root,
 > followed by `/beril-adversarial-configure`.

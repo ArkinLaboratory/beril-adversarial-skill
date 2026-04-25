@@ -27,8 +27,11 @@ beril-adversarial-skill v0.1.0
 If `beril-adversarial: command not found`, install via:
 
 ```bash
-pipx install git+ssh://git@github.com/ArkinLaboratory/beril-adversarial-skill.git
+pipx install --force git+https://github.com/ArkinLaboratory/beril-adversarial-skill.git
 ```
+
+(SSH URL `git+ssh://git@github.com/ArkinLaboratory/beril-adversarial-skill.git`
+also works if you have a GitHub SSH key registered.)
 
 If `[MISSING] claude CLI not found`, install Claude Code from
 https://docs.claude.com and ensure `claude` is on PATH.
