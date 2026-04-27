@@ -501,7 +501,18 @@ Use the Write tool with the absolute audit_file path above."
 }
 
 # Run a fix pass: re-invoke the original reviewer with the critic's
-# violation list and instructions to fix in place.
+# violation list and a corrected version of the review.
+#
+# IMPORTANT — this function MUST inline the original review content into
+# the fix prompt. The retry helper's claim_file step truncates the
+# review_file to a placeholder BEFORE the fix-pass model runs, which
+# means the model cannot recover the original content from disk. We
+# capture the content first, inline it into the prompt, and the model
+# writes a corrected version from its prompt context.
+#
+# We also backup the original to .pre-fix.bak so finalize_review can
+# restore it if the fix pass produces invalid/truncated output.
+#
 # Args:
 #   $1  review_file_path  (absolute, the file to fix)
 #   $2  audit_file_path   (absolute, contains the violation list)
@@ -517,37 +528,63 @@ invoke_fix_pass() {
   local model="$4"
   local metadata_path="${5:-}"
 
+  if [[ ! -s "$review_file" ]]; then
+    echo "Error: cannot run fix pass on empty/missing review file: $review_file" >&2
+    return 1
+  fi
+
+  # Capture original BEFORE invoke_claude_with_retry's claim_file call
+  # destroys it. Inline it into the prompt so the model can produce a
+  # corrected version from prompt context (it cannot read from disk —
+  # the disk version will be a placeholder by the time the model runs).
+  local original_content
+  original_content="$(cat "$review_file")"
+
   local violations
   violations="$(cat "$audit_file" 2>/dev/null || echo '(audit file unreadable)')"
 
-  local fix_prompt="The adversarial review at this absolute path failed \
-compliance review:
-${review_file}
+  local fix_prompt="The adversarial review below failed compliance review. \
+Your job is to produce a corrected version with the listed violations \
+fixed, preserving all substantive content verbatim.
 
-The compliance critic found these violations:
+ORIGINAL REVIEW CONTENT (verbatim — preserve all substantive content \
+including claims, severity assessments, hypothesis vetting, biological \
+claims, data support, prior-review handling):
+
+\`\`\`markdown
+${original_content}
+\`\`\`
+
+VIOLATIONS FOUND BY THE COMPLIANCE CRITIC:
 
 ${violations}
 
-YOUR JOB: read the review file at the absolute path above. Fix each \
-violation listed. Save the corrected review back to the same absolute \
-path via the Write tool.
+YOUR JOB: write a corrected version of the review to this absolute \
+path via the Write tool:
+${review_file}
 
 Rules for the fix:
-- Do NOT modify substantive content (claims, severity, hypothesis \
-  vetting, etc.). Only fix the format/discipline violations the \
-  critic flagged.
-- For 'Sources/References at end' violations: remove the entire \
-  trailing list. Inline citations should already cover what's needed.
+- Preserve ALL substantive content from the original above. Do NOT \
+  drop sections, do NOT summarize, do NOT rewrite for style. Only \
+  change what the listed violations require.
+- The corrected file should have a similar length to the original \
+  (within ~10-20%). If you find yourself producing a much shorter \
+  file, you are dropping content you should be preserving.
+- For 'Sources/References at end' violations: remove the trailing \
+  orphan list section, but keep all inline citations and the \
+  surrounding text intact.
 - For 'vague citation' violations: either upgrade to the full 9-field \
   block format (verify via WebSearch first if needed), or remove the \
-  vague reference if you can't produce a strict citation.
+  vague reference and the sentence that depended on it. Do NOT just \
+  delete a citation while leaving a half-sentence behind.
 - For 'vague missing-citation' violations: either provide the strict \
-  citation block (verify the paper exists), or rewrite the suggestion \
-  to be method/concept-based instead of paper-based.
+  citation block (verify the paper exists via WebSearch), or rewrite \
+  the suggestion to be method/concept-based instead of paper-based.
 
-Write the corrected review back to: ${review_file}
-
-Use the Write tool with the absolute path above."
+The corrected review is delivered ONLY by invoking the Write tool with \
+the absolute path above. Producing the corrected review as a chat \
+response means it is lost. Before responding, verify Write was \
+actually invoked in this turn."
 
   echo "Running compliance fix pass..." >&2
   invoke_claude_with_retry \
@@ -596,11 +633,46 @@ finalize_review() {
         v_count=$(grep -c "^### " "$audit_file" 2>/dev/null || echo "?")
         echo "Compliance critic: ${v_count} violation(s) — running fix pass..." >&2
         local meta_fix="${output_file}.metadata.fix.json"
-        if invoke_fix_pass "$output_file" "$audit_file" "$sys_prompt_file" \
-                           "$model" "$meta_fix"; then
+
+        # Backup the original review BEFORE fix pass. The retry helper's
+        # claim_file step truncates output_file to a placeholder before the
+        # fix-pass model runs; if the model produces invalid/corrupted output
+        # (or the helper fails entirely after retries), we lose the original.
+        # The .pre-fix.bak lets us restore on any failure mode.
+        local fix_backup="${output_file}.pre-fix.bak"
+        local original_lines
+        cp "$output_file" "$fix_backup"
+        original_lines=$(wc -l < "$fix_backup")
+
+        local fix_rc=0
+        invoke_fix_pass "$output_file" "$audit_file" "$sys_prompt_file" \
+                        "$model" "$meta_fix" || fix_rc=$?
+
+        # Validate the post-fix file: must have YAML frontmatter and at
+        # least 60% of the original line count (catches drastic truncation
+        # like the model writing a STATUS stub instead of a corrected
+        # review).
+        local fix_valid=1
+        local post_fix_lines=0
+        if [[ -f "$output_file" ]]; then
+          post_fix_lines=$(wc -l < "$output_file")
+        fi
+        if [[ $fix_rc -ne 0 ]]; then
+          fix_valid=0
+        elif ! validate_output "$output_file" 2>/dev/null; then
+          fix_valid=0
+        elif [[ $original_lines -gt 0 ]] \
+             && (( post_fix_lines * 100 < original_lines * 60 )); then
+          fix_valid=0
+          echo "Warning: post-fix review is ${post_fix_lines} lines vs ${original_lines} original (drastic truncation)" >&2
+        fi
+
+        if [[ $fix_valid -eq 1 ]]; then
+          # Fix landed. Discard backup, record metadata, run re-critic.
+          rm -f "$fix_backup"
           META_FILES+=( "$meta_fix" )
           CALL_LABELS+=( "fix" )
-          # Re-critic to verify the fix landed
+
           local audit_file2="${output_file}.audit2.md"
           local meta_recritic="${output_file}.metadata.recritic.json"
           if invoke_critic "$output_file" "$model" "$audit_file2" "$meta_recritic"; then
@@ -617,7 +689,20 @@ finalize_review() {
             fi
           fi
         else
-          echo "Warning: fix pass failed; original violations remain. Audit at $audit_file" >&2
+          # Fix pass produced invalid output. Preserve the corrupt attempt
+          # for inspection, then restore the original review from backup.
+          local fix_attempt="${output_file}.fix-attempt.md"
+          if [[ -f "$output_file" ]]; then
+            mv "$output_file" "$fix_attempt"
+          fi
+          mv "$fix_backup" "$output_file"
+          # Don't record metadata for a failed fix — the fix call's tokens
+          # were spent but the work was discarded; aggregating it would
+          # mislead users into thinking the fix landed.
+          rm -f "$meta_fix"
+          echo "Error: fix pass produced invalid output; original review restored." >&2
+          echo "  Corrupted fix attempt preserved at: $fix_attempt" >&2
+          echo "  Original violations remain. Critic audit at: $audit_file" >&2
         fi
       else
         echo "Compliance critic: unexpected output. Audit at $audit_file" >&2
