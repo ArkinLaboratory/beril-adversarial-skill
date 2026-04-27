@@ -12,8 +12,9 @@ flagging of inferential leaps.
 
 ## Status
 
-v0.1 — first release. The system prompts are versioned (`.v1.md`) and
-will iterate as the skill is used.
+v0.2.0 — adds the programmatic citation verification gate (Crossref +
+NCBI PubMed). System prompts remain at `.v1.md`; no breaking changes
+to slash commands or output paths.
 
 ## Install
 
@@ -89,6 +90,13 @@ for a standard project review.
 - `--no-critic` — opt out of the post-review compliance critic.
   Default: critic runs and triggers a fix pass on format/discipline
   violations.
+- `--no-verify-citations` — opt out of the citation verification gate.
+  Default: every 9-field citation block is programmatically verified
+  against Crossref (DOI) and NCBI PubMed (PMID) after the compliance
+  critic loop. Fabricated citations are marked inline with a
+  `> ⚠️ **CITATION FABRICATED**` blockquote and listed in a
+  `## Citation Verification` section appended to the review. Adds
+  zero LLM token cost (just HTTP calls to free registries).
 - `--consolidate` — synthesize all numbered reviews into a canonical
   file with revision-history provenance; numbered files are preserved
   as audit trail.

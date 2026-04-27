@@ -233,6 +233,18 @@ All 9 fields required. Self-verify each citation before finalizing.
 Prefer primary research over reviews — mark review articles
 "[REVIEW ARTICLE]" explicitly.
 
+**Citation gate is programmatic, not advisory.** After you finish, an
+automated verifier hits Crossref (DOI) and NCBI PubMed (PMID) and
+checks every 9-field block. DOI 404, PMID not found, or DOI/PMID
+resolving to a paper with a wildly different title than you claimed
+will all be flagged. The verifier inserts a
+`> ⚠️ **CITATION FABRICATED**` blockquote above each fabricated entry
+and appends a Citation Verification report to the review. Users see
+these markers prominently. Do NOT produce a 9-field block with a DOI
+or PMID you have not directly verified via WebSearch — replace with
+a method/concept-based suggestion or mark with `[unverified]` if you
+cannot reach the registry.
+
 **No Sources/References section at end of the review.** Inline
 citations are the only form. Do NOT add a "Sources:" or
 "## References" section at the end. The inline citations ARE the

@@ -43,6 +43,7 @@ _EXECUTABLE_FILES = (
     "tools/adversarial_review.sh",
     "tools/stream_progress.py",
     "tools/aggregate_metadata.py",
+    "tools/verify_citations.py",
 )
 
 

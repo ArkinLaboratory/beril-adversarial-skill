@@ -263,6 +263,45 @@ fields are visually obvious and unacceptable. "Recent research
 confirms…" without a citation block is unacceptable. Vague "Author
 et al. (Year)" without title and venue is unacceptable.
 
+**Citation gate is programmatic, not advisory.** After you finish, an
+automated verifier hits Crossref (for DOI) and NCBI PubMed (for PMID)
+and checks each 9-field block you produce. Failure modes the verifier
+catches:
+
+- DOI returns 404 from Crossref → fabricated DOI
+- PMID does not exist in PubMed → fabricated PMID
+- DOI/PMID resolves but to a paper with a wildly different title →
+  identifier hallucinated for an otherwise real paper
+
+When fabrications are found, the verifier inserts a
+`> ⚠️ **CITATION FABRICATED**` blockquote immediately above the
+offending citation in the review file, AND appends a Citation
+Verification section listing every fabrication. The user reading the
+review will see these markers prominently. A single fabricated citation
+undermines the entire review's credibility.
+
+The reliable workflow:
+
+1. Use `WebSearch` to find the paper. Verify it exists with the exact
+   DOI/PMID/title you'll cite.
+2. Open the resolved URL or PubMed entry; read the abstract.
+3. Quote a verbatim finding.
+4. Construct the 9-field block by copying identifiers from the source —
+   not from memory.
+
+If you cannot find the paper via WebSearch, you have two acceptable
+options:
+
+- Replace the paper-specific suggestion with a method/concept-based
+  one (e.g., "consider a leave-one-organism-out cross-validation"
+  rather than "see Smith 2024"), OR
+- Mark the entry with `[unverified]` and explain why you couldn't
+  reach the registry.
+
+What is NOT acceptable: producing a 9-field block with plausible-
+looking but unverified DOI/PMID. The verifier will flag it and your
+review will ship with a fabrication marker visible to the user.
+
 **Format (use exactly):**
 
 ```

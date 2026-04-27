@@ -35,6 +35,11 @@ NO_STREAM=0
 # Compliance critic (post-review audit + targeted fix pass) is the default.
 # Set NO_CRITIC=1 (via --no-critic) to opt out.
 NO_CRITIC=0
+# Citation verification gate (programmatic check against Crossref + PubMed)
+# is the default. Set NO_VERIFY_CITATIONS=1 (via --no-verify-citations) to
+# opt out. The gate is independent of the LLM-based critic and adds zero
+# token cost (just HTTP calls to free registries).
+NO_VERIFY_CITATIONS=0
 
 CLAUDE_DEFAULT_MODEL="claude-sonnet-4-20250514"
 CODEX_DEFAULT_MODEL="gpt-5.4"
@@ -73,6 +78,14 @@ Options:
   --no-critic                 Disable the post-review compliance critic.
                               Default: critic runs after main review and
                               triggers a targeted fix pass on violations.
+  --no-verify-citations       Disable the citation verification gate.
+                              Default: gate runs after the compliance
+                              critic loop. Every 9-field citation block
+                              is verified against Crossref (DOI) and
+                              NCBI PubMed (PMID); fabricated citations
+                              are marked inline and listed in a Citation
+                              Verification section appended to the
+                              review.
   --output <path>             Override output file path (default: auto-numbered)
   --help                      Show this message
 
@@ -135,6 +148,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-critic)
       NO_CRITIC=1
+      shift
+      ;;
+    --no-verify-citations)
+      NO_VERIFY_CITATIONS=1
       shift
       ;;
     --help)
@@ -739,6 +756,48 @@ finalize_review() {
       echo "Warning: compliance critic invocation failed; skipping audit" >&2
       rm -f "$audit_file"
     fi
+  fi
+
+  # Citation verification gate. Programmatically verifies every 9-field
+  # citation block against Crossref (DOI) and NCBI PubMed (PMID).
+  # Fabricated citations are marked inline in the review and listed in a
+  # Citation Verification section appended to the review file.
+  #
+  # The gate uses HTTP calls to free registries (no LLM tokens), so cost
+  # is negligible. We do not aggregate this into the cumulative Run
+  # Metadata token cost — it's reported as a separate end-of-run line.
+  if [[ "$NO_VERIFY_CITATIONS" != "1" \
+        && -f "$SKILL_DIR/tools/verify_citations.py" \
+        && -f "$output_file" ]] \
+     && command -v python3 &>/dev/null; then
+    local verify_meta="$debug_dir/citation_verification.json"
+    mkdir -p "$debug_dir"
+    local verify_rc=0
+    python3 "$SKILL_DIR/tools/verify_citations.py" "$output_file" \
+        --metadata-out "$verify_meta" 2>&1 || verify_rc=$?
+    case $verify_rc in
+      0)
+        # Pass (or pass with caveats — verifier already logged details)
+        rm -f "$verify_meta"
+        ;;
+      2)
+        echo "" >&2
+        echo "================================================================" >&2
+        echo "CITATION VERIFICATION: FABRICATIONS FOUND" >&2
+        echo "================================================================" >&2
+        echo "  The review contains one or more fabricated citations." >&2
+        echo "  Inline warnings inserted; full report appended to:" >&2
+        echo "    $output_file" >&2
+        echo "  Look for the 'Citation Verification' section." >&2
+        echo "================================================================" >&2
+        echo "" >&2
+        rm -f "$verify_meta"
+        ;;
+      *)
+        echo "Warning: citation verifier failed (exit $verify_rc); review unchanged" >&2
+        rm -f "$verify_meta"
+        ;;
+    esac
   fi
 
   # If the debug dir is empty (clean run, no forensics preserved), remove

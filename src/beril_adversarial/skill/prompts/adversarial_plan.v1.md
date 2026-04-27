@@ -223,6 +223,17 @@ verify via WebSearch that the paper actually exists. Vague handles
 like "Smith et al. 2021" without title/DOI are hallucination risks
 and not allowed.
 
+**Citation gate is programmatic, not advisory.** After you finish, an
+automated verifier hits Crossref (DOI) and NCBI PubMed (PMID) and
+checks every 9-field block. DOI 404, PMID not found, or DOI/PMID
+resolving to a paper with a different title than you claim will be
+flagged with an inline `> ⚠️ **CITATION FABRICATED**` blockquote and
+listed in a Citation Verification section appended to the review.
+Users see these markers prominently. Do not produce a 9-field block
+with an identifier you have not directly verified via WebSearch —
+either replace with a method/concept-based suggestion or mark with
+`[unverified]`.
+
 **Prefer primary research over reviews.** When citing for adversarial
 critique, prefer primary research papers over review articles.
 Reviews summarize but rarely demonstrate. Mark review articles
