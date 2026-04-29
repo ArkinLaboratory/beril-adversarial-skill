@@ -41,7 +41,8 @@ SKILL_DIR_SRC = (
     / "beril_adversarial"
     / "skill"
 )
-PROMPT_PATH = SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v1.md"
+PROMPT_PATH = SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v2.md"
+PROMPT_V1_DEPRECATION_STUB = SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v1.md"
 ORCHESTRATOR_SCRIPT = SKILL_DIR_SRC / "tools" / "adversarial_review.sh"
 SKILL_MD = SKILL_DIR_SRC / "SKILL.md"
 SLASH_COMMAND_MD = SKILL_DIR_SRC / "commands" / "beril-adversarial.md"
@@ -55,7 +56,27 @@ SLASH_COMMAND_MD = SKILL_DIR_SRC / "commands" / "beril-adversarial.md"
 def test_presentation_prompt_file_exists():
     """The system prompt file must ship in the source tree."""
     assert PROMPT_PATH.is_file(), (
-        f"adversarial_presentation.v1.md not found at {PROMPT_PATH}"
+        f"adversarial_presentation.v2.md not found at {PROMPT_PATH}"
+    )
+
+
+def test_v1_prompt_is_deprecation_stub():
+    """The v1 prompt file remains in the package as a deprecation stub
+    (sandbox can't `rm` from the host-mounted repo). It must be a stub,
+    not the legacy prompt content."""
+    assert PROMPT_V1_DEPRECATION_STUB.is_file(), (
+        ".v1.md should still exist as a deprecation marker"
+    )
+    text = PROMPT_V1_DEPRECATION_STUB.read_text(encoding="utf-8")
+    assert "DEPRECATED" in text, (
+        "v1 file must be the deprecation stub, not the legacy prompt"
+    )
+    # Stub should be short — if someone accidentally restored the legacy
+    # content it would be 1000+ lines.
+    line_count = len(text.splitlines())
+    assert line_count < 50, (
+        f"v1 deprecation stub is {line_count} lines — should be <50; "
+        "legacy prompt content may have been restored"
     )
 
 
@@ -92,9 +113,9 @@ def test_presentation_prompt_pins_schema_version():
     """The JSON schema_version must be the SPEC-mandated literal —
     consumers parse by exact match."""
     text = PROMPT_PATH.read_text(encoding="utf-8")
-    assert "adversarial-review-presentation.v1" in text, (
+    assert "adversarial-review-presentation.v2" in text, (
         "prompt does not pin schema_version literal "
-        "'adversarial-review-presentation.v1'"
+        "'adversarial-review-presentation.v2'"
     )
 
 
@@ -479,8 +500,8 @@ def test_install_skill_includes_presentation_prompt():
     """Verify that the prompts/ directory shipped via install-skill
     contains the presentation prompt. We probe at the source-tree
     level since that's where install-skill copies from."""
-    assert (SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v1.md").is_file(), (
-        "presentation prompt not in shipped prompts/ — install-skill "
+    assert (SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v2.md").is_file(), (
+        "presentation v2 prompt not in shipped prompts/ — install-skill "
         "will not deploy it"
     )
 

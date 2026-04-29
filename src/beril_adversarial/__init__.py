@@ -1,3 +1,3 @@
 """beril-adversarial-skill — adversarial reviewer skill for BERIL deployments."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

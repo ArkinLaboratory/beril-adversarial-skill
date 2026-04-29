@@ -354,10 +354,16 @@ run_presentation_review() {
     DRAFT_NUMBER="$DRAFT_BASENAME"
   fi
 
-  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_presentation.v1.md"
+  # As of v0.5.0 the prompt is at .v2.md (single-array schema). The
+  # .v1.md file is preserved as a deprecation stub; we explicitly do
+  # NOT load it.
+  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_presentation.v2.md"
   if [[ ! -f "$SYSTEM_PROMPT_FILE" ]]; then
     echo "Error: presentation system prompt not found: $SYSTEM_PROMPT_FILE" >&2
     echo "Run 'beril-adversarial install-skill <BERIL_ROOT>' to refresh." >&2
+    echo "(If you see adversarial_presentation.v1.md but not .v2.md, the" >&2
+    echo " installed skill is from a v0.4.x build; refresh via pipx install" >&2
+    echo " --force <wheel> + beril-adversarial install-skill <BERIL>.)" >&2
     exit 2
   fi
 
@@ -411,17 +417,24 @@ Write tool calls you made, you have not finished the task — invoke
 Write now.
 
 In the JSON, set:
+  - schema_version: adversarial-review-presentation.v2
   - reviewer_model: ${MODEL}
-  - prompt_version: adversarial_presentation.v1
+  - prompt_version: adversarial_presentation.v2
   - project_id: ${PROJECT_ID_LOCAL}
   - draft_number: ${DRAFT_NUMBER}
   - draft_dir: ${DRAFT_DIR}
+
+Use the SINGLE-ARRAY schema v2: ALL findings (slide-level and
+deck-level) live in the findings[] array. Deck-level findings
+(narrative_weakness, missing_slide) are signaled by absence of
+slide_id. Do NOT emit a deck_level_findings field — it is rejected
+in v2.
 
 In the .md frontmatter, set:
   - reviewer: BERIL Adversarial Review (Presentation, ${MODEL})
   - project_id: ${PROJECT_ID_LOCAL}
   - draft_number: ${DRAFT_NUMBER}
-  - prompt_version: adversarial_presentation.v1
+  - prompt_version: adversarial_presentation.v2
 
 Follow the system prompt's detection protocol exactly. Walk every
 content slide; run all 7 detection classes. Do not stop early.
@@ -476,7 +489,7 @@ finding. Recount the summary block before emitting JSON."
     done
     echo "This is a known stochastic failure mode of claude -p with rich tool" >&2
     echo "grants — re-run the command. If it persists, the prompt may need" >&2
-    echo "tightening (see prompts/adversarial_presentation.v1.md self-skepticism)." >&2
+    echo "tightening (see prompts/adversarial_presentation.v2.md self-skepticism)." >&2
     exit 2
   fi
 
@@ -492,17 +505,23 @@ finding. Recount the summary block before emitting JSON."
     python3 "$VALIDATOR" "$OUT_JSON" || validator_rc=$?
     case $validator_rc in
       0)
-        : ;;  # pass
+        : ;;  # pass — clean
       2)
-        echo "Note: validator emitted advisory warnings (review still shipped)." >&2
+        # exit 2 covers (a) advisory warnings (zero-P0 on large deck,
+        # missing narrative_weakness) and (b) auto-corrected summary
+        # mismatches (v0.4.1+). The validator's stderr already prints
+        # a prominent AUTO-CORRECTED block in case (b), so we don't
+        # need to re-banner; just acknowledge the .json is consumer-safe.
+        echo "Note: validator exit 2 — review shipped. See validator stderr above for details." >&2
         ;;
       1)
         echo "" >&2
         echo "================================================================" >&2
-        echo "JSON VALIDATION FAILED" >&2
+        echo "JSON VALIDATION FAILED — non-correctable error(s)" >&2
         echo "================================================================" >&2
-        echo "  The reviewer produced a JSON file that does not conform to the" >&2
-        echo "  adversarial-review-presentation.v1 schema (see errors above)." >&2
+        echo "  The reviewer produced a JSON file with structural problems" >&2
+        echo "  that cannot be auto-corrected (schema violation, invalid enum" >&2
+        echo "  values, duplicate IDs, narrative_weakness invariants)." >&2
         echo "  The .md report may still be useful, but the .json is not safe" >&2
         echo "  for the consumer (presentation-maker review-rewrite loop)." >&2
         echo "  Re-running often resolves stochastic prompt-discipline failures." >&2

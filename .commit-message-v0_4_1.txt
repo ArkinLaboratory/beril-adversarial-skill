@@ -1,0 +1,53 @@
+v0.4.1: validator auto-corrects summary count mismatches
+
+Live test of v0.4.0 against draft_10 surfaced a deterministic LLM
+failure mode: the reviewer consistently miscounts between the
+findings array and the summary block (two consecutive runs, both
+off-by-one in P0/P1, opposite directions). The prompt's "recount
+before emitting" instruction works ~80% of the time but is not
+reliable — LLMs are intrinsically bad at arithmetic on their own
+output. We can't train this away; we backstop it.
+
+Validator change (tools/validate_presentation_review.py)
+- New compute_correct_summary(findings, deck_findings) helper —
+  single source of truth for deriving summary counts.
+- validate() now returns 4-tuple (errors, summary_corrections,
+  warnings, stats). Summary mismatches route to summary_corrections,
+  not errors.
+- main() auto-corrects on summary mismatch: rewrites JSON with
+  computed counts, preserves original to <name>.original-summary.json
+  sidecar for forensics, exits 2 (warning) instead of 1 (fail).
+- Prominent AUTO-CORRECTED stderr block on stderr.
+- Non-correctable errors (schema, enum, duplicate IDs,
+  narrative_weakness invariants) still exit 1 — auto-correction
+  doesn't paper over structural breakage.
+
+Orchestrator change (tools/adversarial_review.sh)
+- case 2 message updated to "review shipped; see validator stderr"
+  (validator already prints the AUTO-CORRECTED block prominently).
+- case 1 banner clarified: "non-correctable error(s)".
+
+Prompt change (prompts/adversarial_presentation.v1.md)
+- Self-skepticism check #5 updated: tells the LLM auto-correction
+  exists; explicit guidance "keep finding severity correct; let
+  validator fix summary" rather than "reclassify a finding to
+  make the summary match."
+
+Tests
+- 4 new tests for compute_correct_summary + auto-correction CLI
+  path + findings-array preservation + non-correctable-blocks-fix.
+- 4 existing summary-mismatch tests updated to assert the new
+  routing-to-corrections behavior.
+- Full suite: 112/112 pass.
+
+Trade-offs
+- Summary mismatches are no longer release-blocking. The findings
+  array is the ground truth. Consumers should parse findings[]
+  directly rather than trust summary counts.
+- Forensic sidecar means we don't lose evidence of the LLM's
+  miscount; if the issue ever needs deeper investigation, the
+  original summary is preserved.
+
+Operator impact
+- pipx install --force + beril-adversarial install-skill from BERIL
+  root. Existing review JSON files unchanged unless re-validated.

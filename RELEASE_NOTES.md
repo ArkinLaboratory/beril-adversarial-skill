@@ -2,6 +2,182 @@
 
 ---
 
+## v0.5.0 — 2026-04-29
+
+**Schema bump: `adversarial-review-presentation.v2` collapses the
+dual-array structure to a single `findings[]` array.**
+
+Live test of v0.4.1 against draft_10 surfaced the third distinct
+schema violation in three runs: the LLM placed `narrative_weakness`
+and `missing_slide` findings into the slide-level `findings[]` array
+instead of `deck_level_findings[]`, where they failed validation due
+to missing slide-level fields. Schema v1's two-array structure was
+the root cause — the LLM had to pick which array a finding belonged
+in, and prompt-level instruction wasn't load-bearing enough.
+
+v2 eliminates the choice. There is one `findings[]` array. Deck-level
+findings are signaled by absence of `slide_id`. The LLM cannot put
+findings in the wrong array because there is only one array.
+
+### What changed
+
+- **Schema v2:**
+  - Single `findings[]` array. ALL findings live here.
+  - `deck_level_findings[]` field is REMOVED. v2 docs that include it
+    are rejected.
+  - `slide_id`, `slide_position`, `slide_layout`, `title_quote` become
+    OPTIONAL on each finding. Presence of `slide_id` triggers the
+    requirement for the others (slide-level finding); absence
+    indicates a deck-level finding.
+  - ID namespace unified: `F001`, `F002`, ... across the entire array.
+    `DL###` ids are gone (they were a v1 convention).
+- **Prompt v2** (`adversarial_presentation.v2.md`, 1746 lines):
+  - Output Contract section rewritten to use single-array schema.
+  - JSON schema example shows the new shape with deck-level findings
+    inline (no `slide_id` and other slide-level fields omitted).
+  - Worked examples updated: missing-slide example uses `F017`
+    instead of `DL001`; narrative_weakness killshot uses `F018`
+    instead of `DL00X`.
+  - Self-skepticism check #9 (id uniqueness) updated to clarify
+    single-namespace.
+- **Validator dual support** (`validate_presentation_review.py`):
+  - Accepts both `adversarial-review-presentation.v1` and `.v2`.
+  - v1: emits a deprecation warning on stderr; validates per legacy
+    rules (two arrays).
+  - v2: rejects `deck_level_findings` field; per-finding slide-level
+    fields conditionally required by `slide_id` presence.
+  - `compute_correct_summary` works on either shape; auto-correction
+    behavior from v0.4.1 unchanged.
+  - `summary_stats["slide_findings"]` and `["deck_findings"]` now
+    count by `slide_id` presence rather than array membership —
+    consistent semantics across both schemas.
+- **Orchestrator** (`tools/adversarial_review.sh`): loads `.v2.md`;
+  user-prompt body sets `schema_version: adversarial-review-presentation.v2`
+  and `prompt_version: adversarial_presentation.v2`. Includes
+  explicit instruction "do NOT emit a deck_level_findings field."
+- **`adversarial_presentation.v1.md`** is now a deprecation stub
+  (preserved because the sandbox cannot `rm` files on the macOS
+  mount; safe to remove from the repo with `git rm` when convenient).
+
+### Migration
+
+- **Existing audit files** (e.g., draft_9, draft_10 from v0.4.x runs):
+  remain in v1 format. The validator continues to accept them with a
+  deprecation warning. Re-running the reviewer produces v2 audits.
+- **No real consumers** of v1 yet; presentation-maker v0.3.0 review-
+  rewrite loop is planned, not built. v2 is the contract from
+  shipment forward.
+- **Future schema bumps** will follow a deprecation cycle (v2
+  accepted in parallel with v3 for one release). v1's clean drop is
+  the exception, not the precedent.
+
+### Tests
+
++10 new tests across the two test files; full suite 117/117 pass.
+Coverage:
+- v1 docs accepted with deprecation warning
+- Unknown schema_version (`v99`) rejected
+- v2 docs with `deck_level_findings` field rejected
+- v2 finding without `slide_id` valid (it's deck-level)
+- v2 finding with `slide_id` requires the other slide-level fields
+- The 4 pre-existing summary-mismatch tests still route to
+  `summary_corrections` not errors (auto-correct behavior preserved
+  from v0.4.1)
+- The v1 prompt file is a deprecation stub (catches accidental
+  legacy-content restoration)
+- `install-skill` ships `.v2.md`
+
+### Operator impact
+
+- `pipx install --force` the v0.5.0 wheel.
+- `beril-adversarial install-skill <BERIL_ROOT>` to refresh the
+  deployed prompts.
+- New runs emit v2; old audit files (v1) remain readable.
+
+---
+
+## v0.4.1 — 2026-04-29
+
+**Bugfix release: validator auto-corrects summary count mismatches.**
+
+Live test of v0.4.0 against draft_10 (a fresh presentation-maker
+output) revealed that the LLM consistently mis-counts between the
+findings array and the summary block. Two consecutive runs both
+emitted P0/P1 counts that disagreed with the actual array contents
+(off-by-one, opposite directions). The mismatches are not stochastic
+but deterministic — LLMs are intrinsically bad at arithmetic on their
+own output, and the prompt's "recount before emitting" instruction
+catches ~80% of cases but isn't reliable.
+
+### Fix
+
+`tools/validate_presentation_review.py` now AUTO-CORRECTS summary
+count mismatches:
+
+- New helper `compute_correct_summary(findings, deck_findings)` is
+  the single source of truth for deriving summary counts.
+- `validate()` now returns `(errors, summary_corrections, warnings,
+  stats)` — summary mismatches route to a separate channel from
+  hard errors.
+- `main()` rewrites the JSON file in place with the corrected summary
+  whenever there are mismatches AND no non-correctable errors.
+  Original (mismatched) summary is preserved alongside the file as
+  `<name>.original-summary.json` for forensics.
+- Exit code: 2 (warning) on auto-correction. Was 1 (fail) in v0.4.0.
+- Prominent `AUTO-CORRECTED` block on stderr lists the original
+  miscounts and points at the sidecar.
+
+### What still fails hard (exit 1)
+
+Non-correctable errors:
+- Schema literal mismatch (`schema_version` not the v1 literal).
+- Required field missing on any finding.
+- Invalid `class` / `severity` / `confidence` enum values.
+- Duplicate finding IDs.
+- `narrative_weakness` invariant violations (severity not `info`,
+  more than one such finding).
+
+These cannot be auto-corrected without changing semantics. Re-run
+the reviewer to fix.
+
+### Prompt update
+
+The prompt now tells the LLM that summary auto-correction exists,
+with explicit guidance: if you face a choice between "fix the
+summary" and "reclassify a finding to make the summary match,"
+keep the finding correct and let the validator fix the summary.
+
+### Tests
+
++4 new tests in `test_validate_presentation_review.py`:
+`compute_correct_summary` deterministically derives the canonical
+summary; CLI auto-corrects + writes sidecar + exits 2; auto-correction
+preserves findings array byte-for-byte; non-correctable errors block
+auto-correction (file unchanged, no sidecar written).
+
+The four pre-existing summary-mismatch tests were updated to assert
+the routing-to-corrections behavior (was: assert routing-to-errors).
+
+Full suite: 112/112 pass.
+
+### Trade-offs
+
+This change makes summary count mismatches NOT a release-blocker.
+The findings array is the ground truth; consumers of the JSON
+should parse `findings[]` and `deck_level_findings[]` directly
+rather than trust the summary block. The summary is a convenience
+for human readers and is now backstopped by deterministic
+post-correction.
+
+### Operator impact
+
+Existing v0.4.0 deployments work unchanged — re-installing the
+v0.4.1 wheel via `pipx install --force` + `beril-adversarial
+install-skill` is the only step. No prompt re-run needed; existing
+review JSON files are unchanged unless re-validated.
+
+---
+
 ## v0.4.0 — 2026-04-28
 
 **New: `--type presentation` mode.**

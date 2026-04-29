@@ -1,0 +1,61 @@
+v0.5.0: schema v2 collapses dual-array to single findings[]
+
+Live test of v0.4.1 against draft_10 surfaced the third distinct
+schema violation in three runs: LLM placed deck-level findings
+(narrative_weakness, missing_slide) into the slide-level findings[]
+array, where they failed validation due to missing slide-level
+fields. Schema v1's dual-array structure was the root cause — the
+LLM had to pick which array a finding belonged in, and the prompt's
+instructions weren't load-bearing enough.
+
+Schema v2 eliminates the choice. ONE findings[] array. Deck-level
+findings are signaled by absence of slide_id. LLM cannot misplace
+findings because there is only one array.
+
+What ships
+- New schema: adversarial-review-presentation.v2
+  - Single findings[] array; deck_level_findings field REMOVED.
+  - slide_id et al. optional on each finding (presence indicates
+    slide-level; absence indicates deck-level).
+  - Unified F### id namespace across the array; DL### ids gone.
+- New prompt: adversarial_presentation.v2.md (preserves all 8 worked
+  examples + self-skepticism + tooling restrictions from v0.4.1;
+  output-contract section rewritten to single-array shape; worked
+  examples use F### ids throughout).
+- Validator accepts both v1 (deprecation warning) and v2 for
+  forensic compatibility with existing draft_9/draft_10 audits.
+  v1 acceptance is for inspection only — new runs emit v2.
+- Orchestrator loads .v2.md; user prompt sets v2 schema/prompt
+  versions; explicit "do NOT emit deck_level_findings" instruction.
+- v0.4.1 auto-correction behavior preserved (summary mismatches
+  still auto-corrected; sidecar still written).
+- adversarial_presentation.v1.md replaced with a deprecation stub
+  (sandbox can't rm host-mounted files; remove via git rm when
+  convenient).
+
+Tests
+- 10 new tests covering v1 acceptance + deprecation warning, v2
+  rejection of deck_level_findings field, v2 finding without
+  slide_id valid, v2 finding with slide_id requires other slide-level
+  fields, install-skill ships v2 prompt, deprecation stub guard.
+- 4 pre-existing tests updated for v2 default + new flatten semantics.
+- Full suite: 117/117 pass.
+
+Why v2 cleanly drops v1 emit (rather than dual-emit)
+There are no real consumers of v1 yet (presentation-maker v0.3.0
+review-rewrite loop is planned, not built). Dual-emit would be
+deprecation theater for a contract no one depends on. The
+validator's continued v1 acceptance is for forensic purposes
+only — Adam can still read old draft_9/10 audits.
+
+Operator impact
+- pipx install --force <v0.5.0 wheel>
+- beril-adversarial install-skill <BERIL_ROOT>
+- Existing audit JSON files (v1) remain readable with deprecation
+  warning; re-running produces v2.
+- No breaking changes to --type plan/project/paper modes.
+
+Architecture record
+- SCHEMA_V2_DECISIONS.md captures the v1→v2 design decisions:
+  why v2 exists, schema differences, validator dual-support
+  rationale, consumer migration template.
