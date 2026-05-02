@@ -2,6 +2,56 @@
 
 ---
 
+## v0.5.2 — 2026-05-02 (presentation-maker v0.3.1+ layout support)
+
+Cross-skill contract drift fix. presentation-maker v0.3.1
+(2026-05-01) reorganized per-draft directories into 4 zones —
+`deliverable/`, `narrative/`, `working/`, `audit/`. The adversarial
+reviewer's read paths were never updated; reviewing a v0.3.1+ draft
+errored with "required input missing: slide_spec.json" because it
+was looking at the old top-level location instead of `working/`.
+
+### Fix
+
+- `adversarial_review.sh` now detects layout version from disk:
+  - v0.3.1+ (4-zone): reads from `working/slide_spec.json`,
+    `narrative/00_throughline.md`, `narrative/02_substories.md`,
+    `working/03_slides/qa_anticipated.json`,
+    `working/04_speaker_notes/`.
+  - v0.3.0 legacy (flat): reads from `slide_spec.json`,
+    `00_throughline.md`, `02_substories.md`,
+    `03_slides/qa_anticipated.json`, `04_speaker_notes/`.
+  - Error message names BOTH expected paths if neither layout
+    matches.
+  - Stderr logs the detected layout version for traceability.
+- `adversarial_presentation.v2.md` (the system prompt): the path
+  documentation table now shows v0.3.1+ canonical paths with v0.3.0
+  legacy as a secondary column. New "Layout note" + "use the runtime
+  paths" instruction at the top of the source-files section so the
+  LLM doesn't get confused by the dual paths.
+- 5 new unit tests in `test_layout_detection.py` exercise both
+  layouts + missing-file error cases. Use a synthetic BERIL root
+  with symlinked skill directory so the script's preflight passes
+  without needing a real install.
+
+### Cross-skill contract — captured
+
+This was the second bug of this class in 24 hours (the first was
+the figure resolver at presentation-maker v0.3.2.1, also caused by
+v0.3.1's layout reorg landing without consumer updates). Memory
+entry `feedback_cross_skill_contract_drift.md` captures the pattern
++ proposed mitigations (versioned shared interface doc, cross-skill
+smoke test, change-checklist for layout-coupled changes).
+
+### Companion to presentation-maker v0.3.2.4
+
+That release fixed an orchestrator-side reference to the wrong
+adversarial CLI name (`beril-adversarial-cli` → `beril-adversarial`).
+Together v0.3.2.4 + this v0.5.2 close the cross-skill integration
+gap that surfaced during draft_2 adversarial A/B prep.
+
+---
+
 ## v0.5.1 — 2026-05-02 (model bump hotfix)
 
 One-line fix: `CLAUDE_DEFAULT_MODEL` in `adversarial_review.sh`

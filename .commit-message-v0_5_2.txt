@@ -1,0 +1,44 @@
+v0.5.2: presentation-maker v0.3.1+ layout support (cross-skill contract fix)
+
+presentation-maker v0.3.1 (2026-05-01) reorganized per-draft
+directories into 4 zones — deliverable/ narrative/ working/ audit/.
+The adversarial reviewer's read paths were never updated; reviewing
+a v0.3.1+ draft errored with "required input missing: slide_spec.json"
+because it was looking at the old top-level location instead of
+working/. Caught during the draft_2 adversarial A/B prep.
+
+Fix
+
+- adversarial_review.sh detects layout version from disk:
+  - v0.3.1+ (4-zone): working/slide_spec.json, narrative/00_throughline.md,
+    narrative/02_substories.md, working/03_slides/qa_anticipated.json,
+    working/04_speaker_notes/
+  - v0.3.0 legacy (flat): unchanged from prior behavior
+  - Error names BOTH expected paths if neither layout matches
+  - Stderr logs detected layout version for traceability
+
+- adversarial_presentation.v2.md path documentation table updated:
+  v0.3.1+ canonical paths + v0.3.0 legacy as secondary column. New
+  "use the runtime paths" instruction at top of source-files section
+  so the LLM doesn't get confused by dual paths.
+
+- 5 new tests in test_layout_detection.py exercise both layouts +
+  missing-file error cases via synthetic BERIL root with symlinked
+  skill directory (lets the script's preflight pass without a real
+  install).
+
+Cross-skill contract
+
+Second bug of this class in 24 hours; the first was the figure
+resolver at presentation-maker v0.3.2.1. Memory entry
+feedback_cross_skill_contract_drift.md captures the pattern +
+proposed mitigations.
+
+Companion to presentation-maker v0.3.2.4 (orchestrator-side fix
+for the wrong adversarial CLI name reference). Together they close
+the cross-skill integration gap that surfaced during draft_2
+adversarial A/B prep.
+
+Refs:
+- predecessor tag: v0.5.1
+- companion: presentation-maker v0.3.2.4

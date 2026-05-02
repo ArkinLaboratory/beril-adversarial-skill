@@ -81,20 +81,36 @@ relative form, do not add a trailing slash, do not reorder.
 ## Inputs
 
 The user prompt names a `<draft_dir>` (a `talks/draft_N/` folder
-produced by the presentation-maker skill). Before flagging anything,
-read these files in this order:
+produced by the presentation-maker skill).
 
-| Order | File | Why |
-|---|---|---|
-| 1 | `<draft_dir>/slide_spec.json` | The validated final spec — every slide's id, layout, content fields. This is the deck. |
-| 2 | `<draft_dir>/00_throughline.md` | The narrative spine the speaker chose. Source for "does the deck deliver the throughline?" |
-| 3 | `<draft_dir>/02_substories.md` | Substory partition with punchlines + cluster rationales. Source for "do substory boundaries make narrative sense? does each substory have a clean arc?" |
-| 4 | `<project_dir>/REPORT.md` | **The truth source.** Every quantitative claim, every register choice, every finding scope must trace here. The project_dir is `<draft_dir>/../..` (talks/draft_N → ../.. is the project_dir). |
-| 5 | `<project_dir>/RESEARCH_PLAN.md` | Design intent. Source for "is this slide claiming something the plan didn't license?" |
-| 6 | `<draft_dir>/03_slides/qa_anticipated.json` | Q&A fragment. The softball check operates on this. |
-| 7 | `<draft_dir>/04_speaker_notes/` (if present) | Speaker notes. Caveats present in notes but absent from the slide are flaggable: the audience does not see the notes. |
-| 8 | `<draft_dir>/03_slides/intro.json`, `S1_slides.json`, `S2_slides.json`, `S3_slides.json`, `cross_tenant.json` (if present) | The substory-by-substory slide fragments. slide_spec.json is the merged final, but reading the per-substory fragments helps you see substory boundaries. |
-| 9 | `<draft_dir>/curated_figures.md` or `figures_curated.md` (if present) | Inventory of figures the deck cites. Used to confirm a slide's `figure` path actually corresponds to a curated artifact. |
+**IMPORTANT — use the absolute paths the user prompt provides.**
+The user prompt's "Inputs" block names absolute paths for every
+file you need to read (`slide_spec.json: /abs/path/...`). Use those
+paths verbatim — they are the orchestrator's resolved paths under
+the actual draft layout, which differs across presentation-maker
+versions. The path placeholders in the table below describe the
+layout convention; the runtime paths supersede them.
+
+**Layout note (presentation-maker v0.3.1+, 2026-05-01):**
+Per-draft directories were reorganized into 4 zones —
+`deliverable/`, `narrative/`, `working/`, `audit/`. Files that used
+to live at `<draft_dir>/X` now live under one of those zones. The
+table below shows the v0.3.1+ canonical paths; the orchestrator
+supports v0.3.0 legacy drafts via fallback.
+
+Before flagging anything, read these files in this order:
+
+| Order | File (v0.3.1+ layout) | v0.3.0 legacy path | Why |
+|---|---|---|---|
+| 1 | `<draft_dir>/working/slide_spec.json` | `<draft_dir>/slide_spec.json` | The validated final spec — every slide's id, layout, content fields. This is the deck. |
+| 2 | `<draft_dir>/narrative/00_throughline.md` | `<draft_dir>/00_throughline.md` | The narrative spine the speaker chose. Source for "does the deck deliver the throughline?" |
+| 3 | `<draft_dir>/narrative/02_substories.md` | `<draft_dir>/02_substories.md` | Substory partition with punchlines + cluster rationales. Source for "do substory boundaries make narrative sense? does each substory have a clean arc?" |
+| 4 | `<project_dir>/REPORT.md` | `<project_dir>/REPORT.md` | **The truth source.** Every quantitative claim, every register choice, every finding scope must trace here. The project_dir is `<draft_dir>/../..` (talks/draft_N → ../.. is the project_dir). |
+| 5 | `<project_dir>/RESEARCH_PLAN.md` | `<project_dir>/RESEARCH_PLAN.md` | Design intent. Source for "is this slide claiming something the plan didn't license?" |
+| 6 | `<draft_dir>/working/03_slides/qa_anticipated.json` | `<draft_dir>/03_slides/qa_anticipated.json` | Q&A fragment. The softball check operates on this. |
+| 7 | `<draft_dir>/working/04_speaker_notes/` (if present) | `<draft_dir>/04_speaker_notes/` | Speaker notes. Caveats present in notes but absent from the slide are flaggable: the audience does not see the notes. |
+| 8 | `<draft_dir>/working/03_slides/intro.json`, `S1_slides.json`, `S2_slides.json`, `S3_slides.json`, `cross_tenant.json` (if present) | `<draft_dir>/03_slides/...` | The substory-by-substory slide fragments. slide_spec.json is the merged final, but reading the per-substory fragments helps you see substory boundaries. |
+| 9 | `<draft_dir>/working/curated_figures.md` (if present) | `<draft_dir>/curated_figures.md` or `figures_curated.md` | Inventory of figures the deck cites. Used to confirm a slide's `figure` path actually corresponds to a curated artifact. v0.3.2.1+: `figures_curated.md` no longer written; only `curated_figures.md`. |
 
 Read DEEPLY. Do not skim. The hard finds — register drift, missing
 slides, Q&A softballs — require you to hold both the deck and the

@@ -310,16 +310,45 @@ run_presentation_review() {
   fi
   DRAFT_DIR="$(cd "$DRAFT_DIR" && pwd -P)"
 
-  # Required input files (per SPEC §2)
-  local SLIDE_SPEC="$DRAFT_DIR/slide_spec.json"
-  local THROUGHLINE="$DRAFT_DIR/00_throughline.md"
-  local SUBSTORIES="$DRAFT_DIR/02_substories.md"
-  local QA_FILE="$DRAFT_DIR/03_slides/qa_anticipated.json"
+  # v0.5.2: detect presentation-maker draft layout version.
+  #
+  # presentation-maker v0.3.1+ reorganized per-draft directories into 4
+  # zones: deliverable/ narrative/ working/ audit/. v0.3.0 and earlier
+  # had everything at draft_N top level. The reviewer reads several files
+  # whose paths moved; detect the layout once and resolve all paths
+  # accordingly. See cross-skill memory:
+  # feedback_cross_skill_contract_drift.md.
+  local LAYOUT_VERSION
+  local SLIDE_SPEC THROUGHLINE SUBSTORIES QA_FILE SPEAKER_NOTES_DIR
+  if [[ -f "$DRAFT_DIR/working/slide_spec.json" ]]; then
+    # v0.3.1+ 4-zone layout
+    LAYOUT_VERSION="v0.3.1+"
+    SLIDE_SPEC="$DRAFT_DIR/working/slide_spec.json"
+    THROUGHLINE="$DRAFT_DIR/narrative/00_throughline.md"
+    SUBSTORIES="$DRAFT_DIR/narrative/02_substories.md"
+    QA_FILE="$DRAFT_DIR/working/03_slides/qa_anticipated.json"
+    SPEAKER_NOTES_DIR="$DRAFT_DIR/working/04_speaker_notes"
+  elif [[ -f "$DRAFT_DIR/slide_spec.json" ]]; then
+    # v0.3.0 legacy layout (kept for backwards-compat)
+    LAYOUT_VERSION="v0.3.0-legacy"
+    SLIDE_SPEC="$DRAFT_DIR/slide_spec.json"
+    THROUGHLINE="$DRAFT_DIR/00_throughline.md"
+    SUBSTORIES="$DRAFT_DIR/02_substories.md"
+    QA_FILE="$DRAFT_DIR/03_slides/qa_anticipated.json"
+    SPEAKER_NOTES_DIR="$DRAFT_DIR/04_speaker_notes"
+  else
+    echo "Error: required input missing: slide_spec.json" >&2
+    echo "  draft_dir does not look like a presentation-maker draft directory." >&2
+    echo "  Looked for v0.3.1+ at: $DRAFT_DIR/working/slide_spec.json" >&2
+    echo "  Looked for v0.3.0 legacy at: $DRAFT_DIR/slide_spec.json" >&2
+    exit 2
+  fi
+  echo "  detected presentation-maker draft layout: $LAYOUT_VERSION" >&2
 
-  for required in "$SLIDE_SPEC" "$THROUGHLINE" "$SUBSTORIES" "$QA_FILE"; do
+  for required in "$THROUGHLINE" "$SUBSTORIES" "$QA_FILE"; do
     if [[ ! -f "$required" ]]; then
       echo "Error: required input missing: $required" >&2
-      echo "  draft_dir does not look like a presentation-maker draft directory." >&2
+      echo "  draft_dir uses $LAYOUT_VERSION layout but is incomplete." >&2
       exit 2
     fi
   done
@@ -373,8 +402,8 @@ run_presentation_review() {
   local OUT_MD="$AUDIT_DIR/adversarial_review.md"
   local OUT_JSON="$AUDIT_DIR/adversarial_review.json"
 
-  # Optional speaker_notes pointer (a directory, not a file).
-  local SPEAKER_NOTES_DIR="$DRAFT_DIR/04_speaker_notes"
+  # Optional speaker_notes pointer (a directory, not a file). The path
+  # was resolved per layout-version above; just check existence here.
   local SPEAKER_NOTES_HINT=""
   if [[ -d "$SPEAKER_NOTES_DIR" ]]; then
     SPEAKER_NOTES_HINT="
