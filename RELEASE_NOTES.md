@@ -2,6 +2,50 @@
 
 ---
 
+## v0.6.3 — 2026-05-03 (docs-only — paper-writer interop guidance)
+
+CONTRACT.md additions per paper-writer team integration feedback.
+No code changes; no schema changes; no behavior changes.
+
+### Added
+
+- **Severity vocabulary mapping table** — explicit
+  P0↔Critical / P1↔Important / P2↔Suggested / info↔narrative_weakness
+  bijection in CONTRACT.md, with example consumer-side translation
+  code. Closes documentation gap for consumers whose parsers were
+  built around the legacy `Critical / Important / Suggested`
+  vocabulary used by `--type project|plan` markdown reviewers and
+  paper-writer's `fallback_reviewer.v1.md`.
+
+- **Iteration pattern guidance** — two patterns documented for
+  scripted loops that run the reviewer multiple times per draft:
+  Pattern A (`--output` flag for per-run paths; honored for
+  project/plan, partially honored for paper/presentation in v0.6.x);
+  Pattern B (rename `audit/` between runs; works universally).
+
+- **Architectural notes** — explicitly documents why we did NOT add
+  a `severity_label` carrier field (schema lean; mapping is bijective
+  and trivial in consumer code) and why we did NOT change the default
+  output behavior (presentation-maker's `revise_loop.py` parses by
+  canonical name; would break consumers).
+
+### Deferred to v0.7+
+
+- `--auto-number` opt-in flag for canonical reviewer paths
+  (paper/presentation), giving Pattern A behavior without requiring
+  `--output`. Workaround documented; flag work deferred.
+
+### Operator impact
+
+```bash
+pipx install --force <v0.6.3 wheel>
+beril-adversarial install-skill <BERIL_ROOT>
+```
+
+No functional change. CONTRACT.md is the only material update.
+
+---
+
 ## v0.6.2 — 2026-05-02 (JSON-validity hardening)
 
 **Problem:** First live paper review on draft_7 (post-v0.6.1) found

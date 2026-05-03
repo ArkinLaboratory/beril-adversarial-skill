@@ -183,6 +183,112 @@ explicitly NOT a thing — paper schema launched directly at v2.
 
 ---
 
+## Severity vocabulary mapping
+
+The v2 schemas use `P0` / `P1` / `P2` / `info` for severity values
+(bug-tracker conventions; "P0" carries clearer "blocks ship"
+semantics than "Critical"). Legacy markdown reviewers (`--type
+project` / `--type plan`) and paper-writer's
+`fallback_reviewer.v1.md` use the older `Critical` / `Important` /
+`Suggested` vocabulary.
+
+Consumers parsing the v2 JSON who need the legacy form (e.g., for
+display continuity with older tools) can apply this bijective
+mapping:
+
+| v2 schema severity | Legacy markdown severity | When used |
+|---|---|---|
+| `P0` | `Critical` | Blocks ship — fabricated number, broken figure link, silent REPORT drift, abstract overclaim, citation fabrication. Triggers consumer's revise loop. |
+| `P1` | `Important` | Visible quality regression — register drift, citation drift, missing-section, structural arc issues. Surfaces in next_actions. |
+| `P2` | `Suggested` | Polish — wording preferences, citation drift on non-load-bearing claims, vague evidence pointers. |
+| `info` | _no legacy equivalent_ | Reserved for the single Class 7 / Class 10 `narrative_weakness` finding — the deck/paper's biggest weakness as a strategic note for the speaker / author. Not a fix-ticket. |
+
+Example consumer-side translation in Python:
+
+```python
+SEVERITY_TO_LEGACY = {"P0": "critical", "P1": "important",
+                     "P2": "suggested", "info": "narrative_weakness"}
+
+review = json.load(open("audit/adversarial_review.json"))
+counts = {"critical": 0, "important": 0, "suggested": 0,
+          "narrative_weakness": 0}
+for f in review["findings"]:
+    counts[SEVERITY_TO_LEGACY[f["severity"]]] += 1
+```
+
+**We deliberately do NOT emit a `severity_label` convenience field
+in the JSON.** Adding optional carrier fields invites schema bloat;
+the mapping is bijective and trivially computed. If display
+continuity matters to a consumer, compute it in their parser.
+
+---
+
+## Iteration pattern (running the reviewer multiple times per draft)
+
+The default output paths
+(`<draft_dir>/audit/adversarial_review.{md,json}`) **overwrite** on
+each run. This is fine for single-shot audit (the canonical use
+case: user reviews → fixes → re-runs to verify) but hostile to
+scripted iteration loops that need to compare findings across
+rounds.
+
+If your consumer runs the reviewer multiple times per draft (e.g.,
+inside a review-rewrite loop that wants to measure delta), use
+ONE of these two patterns:
+
+### Pattern A — `--output` flag for per-run paths
+
+The shell script's `--output` flag accepts a custom output
+basename. Direct each run to a numbered file:
+
+```bash
+for round in 1 2 3; do
+  beril-adversarial review "$draft_dir" \
+      --type paper \
+      --output "$draft_dir/audit/adversarial_review_round_${round}.md"
+  # JSON path is derived from --output by replacing .md → .json:
+  # adversarial_review_round_1.json, _2.json, _3.json
+done
+```
+
+Note: `--output` is currently honored for `--type project|plan`
+(which already auto-numbers their markdown outputs). For `--type
+paper|presentation`, the v0.6.x default is canonical-name overwrite.
+Auto-numbering for paper/presentation modes is being considered for
+v0.7+; in v0.6.x, use Pattern B if you can't pass `--output`.
+
+### Pattern B — Rename audit/ between runs
+
+Move the previous audit aside before re-running:
+
+```bash
+for round in 1 2 3; do
+  beril-adversarial review "$draft_dir" --type paper
+  if (( round < 3 )); then
+    mv "$draft_dir/audit" "$draft_dir/audit-round-$round"
+  fi
+done
+# After loop: audit-round-1/, audit-round-2/, audit/ (final round)
+```
+
+**Pattern B is preferred** for downstream consumers because:
+- It works identically for paper, presentation, and any future v2
+  schema modes.
+- The full `audit/` directory is preserved per round (including the
+  auto-correction sidecar `*.original-summary.json` if it fired).
+- Recovery from a bad round is `mv audit-round-N audit` — one step.
+
+### Future: `--auto-number` flag (v0.7+)
+
+A planned `--auto-number` flag for v0.7+ will, when set, name
+outputs `adversarial_review_<N>.{md,json}` per run within `audit/`,
+making Pattern A work without `--output` for paper and
+presentation. **Default behavior in v0.6.x and after will remain
+canonical-name overwrite** to avoid breaking existing consumers
+(presentation-maker's `revise_loop.py` parses by canonical name).
+
+---
+
 ## Validator ownership and shared-tool semantics
 
 `tools/validate_presentation_review.py` (filename retained from
