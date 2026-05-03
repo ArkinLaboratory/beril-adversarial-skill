@@ -36,6 +36,8 @@ Exit codes:
 
 Stdout is one summary line on success, e.g.:
   PASS: 17 slide-level findings, 2 deck-level findings (3 P0, 9 P1, 5 P2, 1 info)
+  (or for paper schema:
+   PASS: 11 section-level findings, 5 manuscript-wide findings (8 P0, 7 P1, 0 P2, 1 info))
 
 Stderr carries diagnostic detail. When auto-correction is applied,
 stderr also includes a "AUTO-CORRECTED" block listing the original
@@ -53,37 +55,86 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-# Supported schema versions. v2 is the current emit; v1 is accepted
-# for forensic compatibility with audit files from v0.4.x runs (e.g.,
-# the draft_9 / draft_10 audits). New reviewer runs (v0.5.0+) emit v2
-# only.
-SCHEMA_VERSION_V1 = "adversarial-review-presentation.v1"
-SCHEMA_VERSION_V2 = "adversarial-review-presentation.v2"
-ACCEPTED_SCHEMA_VERSIONS = {SCHEMA_VERSION_V1, SCHEMA_VERSION_V2}
-CURRENT_SCHEMA_VERSION = SCHEMA_VERSION_V2
+# Supported schema versions. As of v0.6.0, this validator handles
+# BOTH the presentation review schemas (v1 deprecated, v2 current)
+# AND the paper review schema (v2 — paper has no v1 schema; the
+# v1 paper reviewer in v0.5.x emitted markdown only).
+#
+# Forensic compatibility: presentation v1 audit files from v0.4.x
+# runs (draft_9, draft_10) remain readable. Paper v1 audits don't
+# exist (no JSON schema then), so no paper v1 acceptance needed.
+SCHEMA_VERSION_PRESENTATION_V1 = "adversarial-review-presentation.v1"
+SCHEMA_VERSION_PRESENTATION_V2 = "adversarial-review-presentation.v2"
+SCHEMA_VERSION_PAPER_V2 = "adversarial-review-paper.v2"
 
-# Backwards-compat alias for code that imported the v1 literal directly.
-SCHEMA_VERSION_LITERAL = SCHEMA_VERSION_V1
+ACCEPTED_SCHEMA_VERSIONS = {
+    SCHEMA_VERSION_PRESENTATION_V1,
+    SCHEMA_VERSION_PRESENTATION_V2,
+    SCHEMA_VERSION_PAPER_V2,
+}
+
+# v1 schemas that are still accepted but deprecated.
+DEPRECATED_SCHEMA_VERSIONS = {
+    SCHEMA_VERSION_PRESENTATION_V1,
+}
+
+# Schema family detection — for routing per-schema validation rules.
+PRESENTATION_SCHEMAS = {
+    SCHEMA_VERSION_PRESENTATION_V1,
+    SCHEMA_VERSION_PRESENTATION_V2,
+}
+PAPER_SCHEMAS = {SCHEMA_VERSION_PAPER_V2}
+
+# Backwards-compat aliases for code that imported the old constants.
+SCHEMA_VERSION_V1 = SCHEMA_VERSION_PRESENTATION_V1
+SCHEMA_VERSION_V2 = SCHEMA_VERSION_PRESENTATION_V2
+CURRENT_SCHEMA_VERSION = SCHEMA_VERSION_PRESENTATION_V2  # legacy alias
+SCHEMA_VERSION_LITERAL = SCHEMA_VERSION_PRESENTATION_V1  # legacy alias
 
 # Severity values that can appear in findings (info is reserved for
 # the single Class 7 narrative_weakness finding).
 VALID_SEVERITIES = {"P0", "P1", "P2", "info"}
 
-# Class values per SPEC §4.
-VALID_CLASSES = {
+# Class values per schema family. Strong intersection between
+# presentation and paper (5 shared classes), with format-specific
+# additions. See SCHEMA_V2_PAPER_DECISIONS.md §"Class enum vs
+# presentation v2 — overlap report".
+
+# Shared between presentation v1/v2 and paper v2.
+SHARED_CLASSES = {
     "throughline",
     "claim_evidence",
     "register_drift",
-    "qa_softball",
-    "substory_arc",
-    "missing_slide",
     "unbacked_quantitative",
     "narrative_weakness",
 }
 
+# Presentation-only classes.
+PRESENTATION_ONLY_CLASSES = {
+    "qa_softball",
+    "substory_arc",
+    "missing_slide",
+}
+
+# Paper-only classes.
+PAPER_ONLY_CLASSES = {
+    "section_arc",
+    "missing_section",
+    "citation_reality",
+    "report_drift",
+    "abstract_body_mismatch",
+}
+
+# Union — used when validating without knowing the schema family yet.
+VALID_CLASSES = SHARED_CLASSES | PRESENTATION_ONLY_CLASSES | PAPER_ONLY_CLASSES
+
+# Per-schema valid class sets.
+VALID_CLASSES_PRESENTATION = SHARED_CLASSES | PRESENTATION_ONLY_CLASSES
+VALID_CLASSES_PAPER = SHARED_CLASSES | PAPER_ONLY_CLASSES
+
 VALID_CONFIDENCES = {"high", "medium", "low"}
 
-# Fields required on every finding (slide-level and deck-level).
+# Fields required on every finding (universally).
 COMMON_REQUIRED_FIELDS = {
     "id",
     "class",
@@ -94,13 +145,36 @@ COMMON_REQUIRED_FIELDS = {
     "fix_hint",
 }
 
-# Fields additionally required on slide-level findings.
+# Presentation: slide-level fields required when slide_id is present.
 SLIDE_LEVEL_REQUIRED_FIELDS = {
     "slide_id",
     "slide_position",
     "slide_layout",
     "title_quote",
 }
+
+# Paper: section-level fields required when section is present.
+# paragraph_quote is class-conditional (mirror of v0.5.3 presentation
+# title_quote behavior — see PAPER_PARAGRAPH_QUOTE_REQUIRED_CLASSES).
+SECTION_LEVEL_REQUIRED_FIELDS = {
+    "section",
+    "line_range",
+}
+
+# Paper: classes for which paragraph_quote is required (criticism
+# targets specific text). Mirror of presentation's title_quote rules
+# from v0.5.3.
+PAPER_PARAGRAPH_QUOTE_REQUIRED_CLASSES = {
+    "register_drift",
+    "claim_evidence",
+    "unbacked_quantitative",
+    "report_drift",
+}
+
+# Presentation title_quote behavior is defined by the v0.5.3
+# TITLE_QUOTE_REQUIRED_CLASSES constant farther down (kept in its
+# original location to preserve git blame). Alias for paper-side code:
+PRESENTATION_TITLE_QUOTE_REQUIRED_CLASSES = None  # set below; placeholder
 
 # Finding classes for which title_quote is REQUIRED when slide_id is
 # present. The principle: title_quote is needed when the criticism
@@ -127,12 +201,59 @@ TITLE_QUOTE_REQUIRED_CLASSES = {
     "claim_evidence",
     "qa_softball",
 }
+# Wire the alias declared earlier (kept up there for the paper-side
+# code that wants a presentation-named symbol).
+PRESENTATION_TITLE_QUOTE_REQUIRED_CLASSES = TITLE_QUOTE_REQUIRED_CLASSES
 
 # If the deck has at least this many slides AND the reviewer found
 # zero P0 findings, emit a warning (advisory only — exit 2). The
 # spec's representative draft_9 has 26 slides + 3 P0s; a zero-P0
 # review on a deck this size strongly suggests reviewer under-fire.
 ZERO_P0_WARN_SLIDE_THRESHOLD = 20
+
+
+# Regex for stripping trailing commas before } or ]. Per memory entry
+# feedback_llm_json_trailing_commas_repairable.md: trailing commas are
+# unambiguous (unlike unescaped quotes, which are not repairable). This
+# regex repairs them without false positives.
+import re as _re
+
+_TRAILING_COMMA_RE = _re.compile(r",(\s*[}\]])")
+
+
+def lenient_json_load(text: str) -> Any:
+    """Parse JSON; if strict parse fails, attempt trailing-comma repair.
+
+    Pattern: try strict json.loads → on JSONDecodeError, regex-strip
+    trailing commas → re-try → on second failure raise the ORIGINAL
+    error (so callers see the actual problem, not the post-repair
+    artifact).
+
+    This catches one common LLM JSON failure mode (trailing commas).
+    It does NOT fix the OTHER common failure (unescaped inner quotes
+    inside string values) — that one is unrepairable in the parser
+    per feedback_llm_json_unfixable_in_parser.md; the fix is at the
+    prompt with explicit anti-pattern guidance.
+
+    Trailing-comma repair only fires when needed (most JSON parses
+    clean on the first try); behavior is byte-identical to strict
+    json.loads for valid input.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as original_err:
+        # Try trailing-comma repair
+        repaired = _TRAILING_COMMA_RE.sub(r"\1", text)
+        if repaired == text:
+            # No trailing commas to fix; surface the original error
+            raise original_err
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            # Repair didn't help; surface the ORIGINAL error so the
+            # caller sees the actual problem, not the post-repair
+            # artifact at a different line/column.
+            raise original_err from None
 
 
 def compute_correct_summary(
@@ -194,18 +315,34 @@ def validate(
         errors.append(
             f"schema_version must be one of {accepted}, got {sv!r}"
         )
-        # Default to v2 rules for the rest of validation if version is bogus
-        sv = CURRENT_SCHEMA_VERSION
+        # Default to presentation v2 rules for the rest of validation if
+        # version is bogus.
+        sv = SCHEMA_VERSION_PRESENTATION_V2
 
-    is_v1 = sv == SCHEMA_VERSION_V1
-    is_v2 = sv == SCHEMA_VERSION_V2
+    # Schema family + version detection
+    is_presentation_v1 = sv == SCHEMA_VERSION_PRESENTATION_V1
+    is_presentation_v2 = sv == SCHEMA_VERSION_PRESENTATION_V2
+    is_paper_v2 = sv == SCHEMA_VERSION_PAPER_V2
 
-    if is_v1:
+    is_presentation = sv in PRESENTATION_SCHEMAS
+    is_paper = sv in PAPER_SCHEMAS
+
+    # Backwards-compat: legacy code paths reference these names.
+    is_v1 = is_presentation_v1
+    is_v2 = is_presentation_v2 or is_paper_v2  # any v2 schema family
+
+    # Per-schema valid class set
+    valid_classes_for_schema = (
+        VALID_CLASSES_PAPER if is_paper else VALID_CLASSES_PRESENTATION
+    )
+
+    if sv in DEPRECATED_SCHEMA_VERSIONS:
         warnings.append(
-            "schema_version 'adversarial-review-presentation.v1' is "
-            "DEPRECATED. New reviewer runs emit v2. v1 acceptance is for "
-            "forensic compatibility with older audit files only; please "
-            "re-run the reviewer to produce a v2 audit."
+            f"schema_version {sv!r} is DEPRECATED. New reviewer runs emit "
+            "the v2 family (adversarial-review-presentation.v2 or "
+            "adversarial-review-paper.v2). v1 acceptance is for forensic "
+            "compatibility with older audit files only; please re-run the "
+            "reviewer to produce a v2 audit."
         )
 
     findings = doc.get("findings")
@@ -215,9 +352,16 @@ def validate(
         )
         findings = []
 
-    # In v1: deck_level_findings is required. In v2: must NOT be present.
+    # deck_level_findings semantics:
+    #   - presentation v1: required separate array (slide-level vs
+    #     deck-level)
+    #   - presentation v2: must NOT be present (collapsed into
+    #     findings[])
+    #   - paper v2: must NOT be present (paper has no concept of
+    #     deck_level_findings; section-level findings have section
+    #     field, manuscript-wide omit it)
     deck_findings: list[Any] = []
-    if is_v1:
+    if is_presentation_v1:
         deck_findings_raw = doc.get("deck_level_findings")
         if not isinstance(deck_findings_raw, list):
             errors.append(
@@ -227,7 +371,7 @@ def validate(
             deck_findings = []
         else:
             deck_findings = deck_findings_raw
-    else:  # v2
+    else:  # any v2 schema (presentation or paper)
         if "deck_level_findings" in doc:
             errors.append(
                 "deck_level_findings field is not allowed in schema v2 — "
@@ -249,13 +393,13 @@ def validate(
         """Validate a single finding entry.
 
         require_slide_fields semantics:
-          - v1, called from findings[]: True (v1 slide-level findings need
-            slide_id et al. unconditionally).
-          - v1, called from deck_level_findings[]: False.
-          - v2, called from findings[]: depends on whether slide_id is
-            present. If slide_id present → require the rest of the slide-
-            level field set; if absent → it's a deck-level finding,
-            slide-level fields not required.
+          - presentation v1 from findings[]: True (slide-level fields
+            unconditional).
+          - presentation v1 from deck_level_findings[]: False.
+          - presentation v2 from findings[]: depends on slide_id presence.
+          - paper v2 from findings[]: depends on section presence; if
+            present, requires section-level field set instead of
+            slide-level (paragraph_quote class-conditional).
         """
         if not isinstance(f, dict):
             errors.append(f"{tag}: finding must be a dict, got {type(f).__name__}")
@@ -268,29 +412,42 @@ def validate(
                 f"{sorted(missing)}"
             )
         if require_slide_fields:
-            # v0.5.3: title_quote is required only for classes where the
-            # criticism targets specific slide text. For substory_arc,
-            # missing_slide, throughline, narrative_weakness, unbacked_
-            # quantitative — title_quote is optional. See
-            # TITLE_QUOTE_REQUIRED_CLASSES.
             cls_for_check = f.get("class")
-            if cls_for_check in TITLE_QUOTE_REQUIRED_CLASSES:
-                required = SLIDE_LEVEL_REQUIRED_FIELDS  # incl title_quote
+            if is_paper:
+                # Paper v2: section-level required fields are SECTION_LEVEL_*
+                # (section + line_range), plus paragraph_quote which is
+                # class-conditional (mirror of presentation's title_quote
+                # behavior from v0.5.3).
+                if cls_for_check in PAPER_PARAGRAPH_QUOTE_REQUIRED_CLASSES:
+                    required = SECTION_LEVEL_REQUIRED_FIELDS | {"paragraph_quote"}
+                else:
+                    required = SECTION_LEVEL_REQUIRED_FIELDS
+                missing_section_fields = required - f.keys()
+                if missing_section_fields:
+                    errors.append(
+                        f"{tag} (id={f.get('id', '?')!r}): missing section-level "
+                        f"field(s): {sorted(missing_section_fields)}"
+                    )
             else:
-                required = SLIDE_LEVEL_REQUIRED_FIELDS - {"title_quote"}
-            missing_slide_fields = required - f.keys()
-            if missing_slide_fields:
-                errors.append(
-                    f"{tag} (id={f.get('id', '?')!r}): missing slide-level "
-                    f"field(s): {sorted(missing_slide_fields)}"
-                )
+                # Presentation v1/v2: title_quote is class-conditional per
+                # v0.5.3. See TITLE_QUOTE_REQUIRED_CLASSES.
+                if cls_for_check in TITLE_QUOTE_REQUIRED_CLASSES:
+                    required = SLIDE_LEVEL_REQUIRED_FIELDS  # incl title_quote
+                else:
+                    required = SLIDE_LEVEL_REQUIRED_FIELDS - {"title_quote"}
+                missing_slide_fields = required - f.keys()
+                if missing_slide_fields:
+                    errors.append(
+                        f"{tag} (id={f.get('id', '?')!r}): missing slide-level "
+                        f"field(s): {sorted(missing_slide_fields)}"
+                    )
 
-        # Field-value validity
+        # Field-value validity (per-schema valid classes)
         cls = f.get("class")
-        if cls is not None and cls not in VALID_CLASSES:
+        if cls is not None and cls not in valid_classes_for_schema:
             errors.append(
                 f"{tag} (id={f.get('id', '?')!r}): class={cls!r} not in "
-                f"{sorted(VALID_CLASSES)}"
+                f"{sorted(valid_classes_for_schema)} (schema {sv})"
             )
         if cls is not None:
             class_counter[cls] += 1
@@ -338,25 +495,25 @@ def validate(
             validate_finding(
                 f, f"deck_level_findings[{i}]", require_slide_fields=False
             )
-    else:
-        # v2: single findings[] array. slide-level fields required IFF
-        # slide_id is present.
+    elif is_presentation_v2:
+        # presentation v2: single findings[] array. slide-level fields
+        # required IFF slide_id is present.
         for i, f in enumerate(findings):
-            if isinstance(f, dict) and "slide_id" in f:
-                # Slide-level finding — require the rest of the field set.
-                validate_finding(
-                    f, f"findings[{i}]", require_slide_fields=True
-                )
-            else:
-                # Deck-level finding (no slide_id). Slide-level fields not
-                # required, but if any of them is present we still check
-                # nothing — partial slide_* presence is allowed (e.g.,
-                # substory_id) but the four anchor fields together
-                # indicate slide-level. Future tightening can require all
-                # or none, but for now: presence-of-slide_id is the gate.
-                validate_finding(
-                    f, f"findings[{i}]", require_slide_fields=False
-                )
+            require_locus = isinstance(f, dict) and "slide_id" in f
+            validate_finding(
+                f, f"findings[{i}]", require_slide_fields=require_locus
+            )
+    else:
+        # paper v2: single findings[] array. section-level fields
+        # required IFF section is present. (require_slide_fields is
+        # the parameter name but in paper context it means "require
+        # the section-level locus fields", per validate_finding's
+        # is_paper branch.)
+        for i, f in enumerate(findings):
+            require_locus = isinstance(f, dict) and "section" in f
+            validate_finding(
+                f, f"findings[{i}]", require_slide_fields=require_locus
+            )
 
     # ----- summary count consistency -----
     # Summary count mismatches are AUTO-CORRECTABLE (the findings array
@@ -407,21 +564,33 @@ def validate(
 
     # ----- advisory checks (warnings, not errors) -----
     p0_count = severity_counter.get("P0", 0)
-    # Heuristic: if we know how many slides the deck had (the schema
-    # doesn't include this directly, but slide_position values give a
-    # lower bound), warn on zero P0s above the threshold.
-    max_position = 0
-    for f in findings:
-        if isinstance(f, dict):
-            pos = f.get("slide_position")
-            if isinstance(pos, int) and pos > max_position:
-                max_position = pos
-    if p0_count == 0 and max_position >= ZERO_P0_WARN_SLIDE_THRESHOLD:
-        warnings.append(
-            f"zero P0 findings on a deck with at least {max_position} "
-            "slides — possible reviewer under-fire. Spec §9 lists 3 P0s "
-            "for draft_9; review the prompt's self-skepticism pass."
-        )
+    if is_paper:
+        # Paper heuristic: if total findings > 5 and zero P0s, warn.
+        # A 5000+ word manuscript with NO P0s strongly suggests reviewer
+        # under-fire on quantitative grounding or citation reality.
+        if p0_count == 0 and len(findings) > 5:
+            warnings.append(
+                f"zero P0 findings on a paper with {len(findings)} total "
+                "findings — possible reviewer under-fire on "
+                "unbacked_quantitative or citation_reality classes. Re-run "
+                "self-skepticism pass."
+            )
+    else:
+        # Presentation heuristic: if we know how many slides the deck had
+        # (the schema doesn't include this directly, but slide_position
+        # values give a lower bound), warn on zero P0s above the threshold.
+        max_position = 0
+        for f in findings:
+            if isinstance(f, dict):
+                pos = f.get("slide_position")
+                if isinstance(pos, int) and pos > max_position:
+                    max_position = pos
+        if p0_count == 0 and max_position >= ZERO_P0_WARN_SLIDE_THRESHOLD:
+            warnings.append(
+                f"zero P0 findings on a deck with at least {max_position} "
+                "slides — possible reviewer under-fire. Spec §9 lists 3 P0s "
+                "for draft_9; review the prompt's self-skepticism pass."
+            )
 
     if not findings and not deck_findings:
         warnings.append(
@@ -442,22 +611,46 @@ def validate(
             f"{narrative_count}"
         )
 
-    # Count slide-level vs deck-level by slide_id presence (consistent
-    # across v1 and v2). In v1, deck_findings live in the deck_level_findings
-    # array; we count those as deck-level regardless of slide_id (none of
-    # them should have slide_id but defensive sum for v1's case is safe).
+    # Count slide-level vs deck-level by locus-field presence.
+    # Presentation: locus = slide_id. Paper: locus = section.
+    # In v1 presentation, deck_findings live in deck_level_findings[]
+    # array — counted as deck/manuscript-wide regardless.
+    locus_field = "section" if is_paper else "slide_id"
     slide_level_count = 0
     deck_level_count = 0
     for f in findings:
-        if isinstance(f, dict) and "slide_id" in f:
+        if isinstance(f, dict) and locus_field in f:
             slide_level_count += 1
         else:
-            # findings[] entry without slide_id is deck-level (v2)
             deck_level_count += 1
-    # In v1, all entries in deck_level_findings are deck-level by definition.
+    # v1 presentation only: deck_level_findings entries are all
+    # deck-level by definition.
     deck_level_count += len(deck_findings)
 
+    # Schema-appropriate labels for the cumulative counts.
+    # Presentation: slide-level vs deck-level findings.
+    # Paper: section-level vs manuscript-wide findings.
+    if is_paper:
+        locus_label = "section-level"
+        non_locus_label = "manuscript-wide"
+    else:
+        locus_label = "slide-level"
+        non_locus_label = "deck-level"
+
     summary_stats = {
+        # locus_count = findings WITH the locus field (slide_id or section).
+        # non_locus_count = findings WITHOUT it (deck-level / manuscript-wide).
+        # Legacy keys "slide_findings" and "deck_findings" preserved for
+        # backwards-compat with callers that scrape these by name; new
+        # callers should use locus_count / non_locus_count + the *_label
+        # fields for schema-appropriate display.
+        "locus_count": slide_level_count,
+        "non_locus_count": deck_level_count,
+        "locus_label": locus_label,
+        "non_locus_label": non_locus_label,
+        "schema_version": sv,
+        "schema_family": "paper" if is_paper else "presentation",
+        # Legacy keys (deprecated; kept for callers that read by name).
         "slide_findings": slide_level_count,
         "deck_findings": deck_level_count,
         "p0": severity_counter.get("P0", 0),
@@ -483,13 +676,31 @@ def main(argv: list[str]) -> int:
 
     try:
         with path.open("r", encoding="utf-8") as fh:
-            doc = json.load(fh)
-    except json.JSONDecodeError as e:
-        print(f"Error: file is not valid JSON: {e}", file=sys.stderr)
-        return 1
+            raw_text = fh.read()
     except OSError as e:
         print(f"Error: could not read file: {e}", file=sys.stderr)
         return 3
+
+    try:
+        doc = lenient_json_load(raw_text)
+    except json.JSONDecodeError as e:
+        # If the lenient loader couldn't repair, surface the ORIGINAL
+        # error (not the post-repair error) — see memory entry
+        # feedback_llm_json_unfixable_in_parser.md: unescaped inner
+        # quotes are NOT repairable; the right fix is at the prompt.
+        print(f"Error: file is not valid JSON: {e}", file=sys.stderr)
+        # Hint about the most-common cause
+        if "delimiter" in str(e):
+            print(
+                "  Hint: 'Expecting , delimiter' often means an "
+                "unescaped \" inside a JSON string value. Check the "
+                "indicated line/column for inner quotes (e.g., "
+                "scare-quoted technical terms). The reviewer prompt "
+                "covers this; if it recurs, the prompt may need "
+                "tightening.",
+                file=sys.stderr,
+            )
+        return 1
 
     errors, summary_corrections, warnings, stats = validate(doc)
 
@@ -560,8 +771,8 @@ def main(argv: list[str]) -> int:
                 return 1
 
     msg = (
-        f"PASS: {stats['slide_findings']} slide-level finding(s), "
-        f"{stats['deck_findings']} deck-level finding(s) "
+        f"PASS: {stats['locus_count']} {stats['locus_label']} finding(s), "
+        f"{stats['non_locus_count']} {stats['non_locus_label']} finding(s) "
         f"({stats['p0']} P0, {stats['p1']} P1, {stats['p2']} P2, "
         f"{stats['info']} info)"
     )

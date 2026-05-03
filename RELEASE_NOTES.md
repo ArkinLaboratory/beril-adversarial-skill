@@ -2,6 +2,300 @@
 
 ---
 
+## v0.6.2 — 2026-05-02 (JSON-validity hardening)
+
+**Problem:** First live paper review on draft_7 (post-v0.6.1) found
+substantively excellent issues (8 P0s including fabricated numbers
+cross-referenced to reframing_log entries marked "escalated but not
+repaired") — but the .json output was malformed. The reviewer wrote
+unescaped inner quotes inside a `paragraph_quote` field:
+
+```
+"paragraph_quote": "Robust rank analysis (Methods §"Experimental Prioritization") identified ..."
+```
+
+Parser saw the string end at `§"`, then choked on `Experimental`.
+Per memory entry `feedback_llm_json_unfixable_in_parser.md`, this
+specific failure mode is **NOT algorithmically repairable** — the
+parser cannot disambiguate "unescaped inner quote" from "two
+adjacent strings with no comma." The fix is at the prompt.
+
+A second LLM JSON failure mode (trailing commas before `}` or `]`)
+IS algorithmically repairable per `feedback_llm_json_trailing_commas_repairable.md`
+— added defensively even though it didn't surface in the draft_7 run.
+
+### Fix
+
+**1. Prompt-level anti-pattern.** Both `adversarial_paper.v2.md` and
+`adversarial_presentation.v2.md` now include an explicit
+"unescaped-inner-quote" anti-pattern in their JSON validity sections:
+- The wrong way (literal example matching the draft_7 failure)
+- Four correct alternatives: backslash-escape, curly quotes,
+  single quotes, rephrasing
+- Explicit warning that the validator CANNOT fix this and the run
+  is wasted if it occurs
+- List of common offender fields per reviewer (paragraph_quote,
+  title_quote, issue, report_evidence quotes, fix_hint)
+
+**2. Lenient JSON loader.** `validate_presentation_review.py` adds a
+`lenient_json_load(text)` helper that:
+- Tries strict `json.loads(text)` first
+- On failure, regex-strips trailing commas (`,(\s*[}\]])` → `\1`)
+- Re-tries
+- On second failure, raises the ORIGINAL error (so the operator sees
+  the actual problem, not a confusing post-repair artifact at a
+  different line/column)
+
+This catches one common LLM JSON failure mode (trailing commas) for
+free without false positives. It does NOT fix unescaped-quote
+failures — those still surface as validator FAIL with a helpful
+hint pointing at the likely cause.
+
+**3. Diagnostic hint.** When the validator fails on a JSONDecodeError
+mentioning "delimiter," it now prints a hint suggesting the operator
+check for unescaped inner quotes. Saves a context-switch to the
+docs.
+
+### Tests
+
++9 new tests:
+- 5 lenient-loader tests: clean JSON unchanged; trailing-comma
+  repair (object, array, multi-location); unrepairable failures
+  surface original error.
+- 2 CLI subprocess tests: trailing-comma doc validates clean;
+  unescaped-inner-quote doc fails with helpful hint.
+- 2 prompt-content tests: paper.v2 prompt + presentation.v2 prompt
+  both contain the anti-pattern guidance.
+
+Full suite: 164/164 pass.
+
+### Operator impact
+
+```bash
+pipx install --force <v0.6.2 wheel>
+beril-adversarial install-skill <BERIL_ROOT>
+```
+
+The next paper or presentation review run picks up the prompt
+update. v0.6.0/v0.6.1 reviews that produced malformed JSON can be
+re-run with v0.6.2 to get valid JSON output.
+
+### What v0.6.2 does NOT do
+
+- Does NOT attempt heuristic repair of unescaped inner quotes — per
+  memory, these are not safely repairable. The fix is the prompt.
+- Does NOT bump the schema. paper.v2 and presentation.v2 schemas
+  unchanged. This is purely prompt + validator hardening.
+- Does NOT re-validate Adam's existing draft_7 audit JSON. That
+  file is still malformed; the .md report is intact and contains
+  the substantive findings.
+
+### Recurring pattern observation
+
+This is the third LLM-output-discipline backstop in the v0.4-v0.6
+series:
+- v0.4.1: summary count auto-correction (LLM arithmetic on
+  self-output)
+- v0.6.2: JSON validity (unescaped inner quotes; trailing commas)
+- (Future): consider catching other patterns in the same place
+
+The pattern: prompts try to discipline; validators enforce what's
+algorithmically enforceable; failures that aren't algorithmically
+repairable get sharp prompt anti-patterns + diagnostic hints. Don't
+prompt-train arithmetic; don't try to repair quotes; do auto-correct
+counts; do repair trailing commas.
+
+---
+
+## v0.6.1 — 2026-05-02 (UX hotfix: schema-aware labels)
+
+**One-line problem:** The validator's PASS message and `summary_stats`
+keys hard-coded the presentation vocabulary ("slide-level finding(s)",
+"deck-level finding(s)") regardless of which schema the JSON used. On
+v0.6.0's first live paper review (against
+`functional_dark_matter/papers/draft_7`), the success message read:
+
+```
+PASS: 11 slide-level finding(s), 5 deck-level finding(s) (8 P0, 7 P1, 0 P2, 1 info)
+```
+
+…for a paper review. Confusing because papers don't have slides.
+The underlying counts were correct (11 section-level + 5 manuscript-
+wide), just labeled with the wrong terminology.
+
+### Fix
+
+`tools/validate_presentation_review.py` `validate()` now returns
+schema-aware labels in `summary_stats`:
+
+- **Presentation schemas** (v1 + v2): `locus_label = "slide-level"`,
+  `non_locus_label = "deck-level"` (preserves existing terminology).
+- **Paper schema** (`adversarial-review-paper.v2`):
+  `locus_label = "section-level"`, `non_locus_label = "manuscript-wide"`.
+
+`main()`'s success message uses these labels. A paper review now reads:
+
+```
+PASS: 11 section-level finding(s), 5 manuscript-wide finding(s) (8 P0, 7 P1, 0 P2, 1 info)
+```
+
+### Backwards compatibility
+
+The legacy `summary_stats["slide_findings"]` and
+`summary_stats["deck_findings"]` keys are preserved alongside the new
+`locus_count` and `non_locus_count` keys. Any caller scraping the
+legacy keys continues to work (numbers are correct; only the LABELS
+were wrong).
+
+New keys exposed in `summary_stats`:
+
+- `locus_count`, `non_locus_count` — schema-neutral counts
+- `locus_label`, `non_locus_label` — schema-appropriate display labels
+- `schema_version`, `schema_family` — the validator's detected schema
+
+### Tests
+
++4 new unit tests asserting the label routing (paper → section-level/
+manuscript-wide; presentation → slide-level/deck-level; legacy keys
+preserved; CLI success message uses paper labels for paper schema).
++1 integration test updated to check paper-aware labels in the v2
+synthetic-review subprocess test. Full suite: 155/155 pass.
+
+### Operator impact
+
+```bash
+pipx install --force <v0.6.1 wheel>
+beril-adversarial install-skill <BERIL_ROOT>
+```
+
+No schema changes; no contract changes. Pure UX correction. paper-
+writer team can pick this up at their convenience; v0.6.0 is fully
+functional, just with confusing labels.
+
+---
+
+## v0.6.0 — 2026-05-02
+
+**Paper alignment + programmatic CLI subcommand. Coordinated v0.6.x
+release with paper-writer.**
+
+paper-writer v0.6.x adopted per-draft directory layout
+(`papers/draft_N/manuscript.md` + `00_throughline.md` + ...) replacing
+the legacy flat-file layout. The adversarial paper reviewer was still
+on v1 architecture (markdown-only output, flat-file inputs), forcing
+paper-writer to ship an inline `fallback_reviewer.v1.md` workaround.
+
+v0.6.0 closes the gap on three fronts simultaneously: (1) new paper
+prompt that reads paper-writer's current dialect, (2) `adversarial-
+review-paper.v2` schema with dual md+json output and the same auto-
+correction backstop as presentation v2, (3) `beril-adversarial review`
+Python CLI subcommand so paper_writer.sh can invoke the canonical
+reviewer programmatically without knowing the deep filesystem path
+to the shell script.
+
+### What changed
+
+- **New schema**: `adversarial-review-paper.v2`. Single `findings[]`
+  array (no `deck_level_findings` field — single-array invariant
+  matches presentation v2). Section-level findings have `section`,
+  `line_range`, `paragraph_quote` (the latter is class-conditional —
+  required for `register_drift` / `claim_evidence` /
+  `unbacked_quantitative` / `report_drift`; optional for the rest,
+  mirroring v0.5.3 presentation `title_quote` rules). Manuscript-wide
+  findings (narrative_weakness, missing_section, abstract_body_mismatch,
+  throughline) omit section-level fields.
+
+- **New prompt**: `prompts/adversarial_paper.v2.md` (1379 lines).
+  10 detection classes with strong intersection with presentation v2:
+  - Shared (5): `claim_evidence`, `unbacked_quantitative`,
+    `register_drift`, `narrative_weakness`, `throughline`
+  - Format-specific (2): `missing_section`, `section_arc`
+  - Paper-only (3): `citation_reality`, `report_drift`,
+    `abstract_body_mismatch`
+  Worked examples for register_drift, citation_reality, report_drift,
+  and the narrative_weakness killshot — grounded in paper-writer-shaped
+  scenarios.
+
+- **Orchestrator update**: `tools/adversarial_review.sh` adds
+  `run_paper_review_v2` early dispatch (mirror of
+  `run_presentation_review`). `--type paper` requires per-draft
+  directory layout; legacy flat-file projects get a clear migration
+  message. Output written to
+  `papers/draft_N/audit/adversarial_review.{md,json}`. Skips
+  `--consolidate`, `--reviewer codex`, `--reviewer claude,codex`
+  (single-pass v1 paper mode; revisit fusion in v0.7+).
+
+- **Validator extended**: `tools/validate_presentation_review.py` now
+  accepts BOTH presentation v1+v2 AND paper.v2 schemas. Per-schema
+  validation enforces clean separation — paper docs reject
+  presentation-only classes (`qa_softball`, etc.); presentation docs
+  reject paper-only classes (`citation_reality`, etc.). Auto-correction
+  behavior from v0.4.1 preserved across all schemas.
+
+- **New CLI subcommand**: `beril-adversarial review <target> --type X
+  [options]`. Thin Python wrapper around `tools/adversarial_review.sh`.
+  Single source of truth (the shell script); the wrapper just resolves
+  the script path and propagates exit codes. Discoverable via
+  `beril-adversarial --help`. Suitable for invocation from other
+  skills' orchestrators (paper_writer.sh, presentation-maker, etc.).
+
+- **Cross-skill interop contract**: New `CONTRACT.md` documents the
+  full surface (CLI, input expectations, output paths, schema family,
+  auto-correction behavior). Memory entry
+  `feedback_cross_skill_contract_drift.md` warned about the recurring
+  drift failure mode; this doc and the new integration tests are the
+  durable preventives.
+
+- **Tests**: 140 unit tests + 6 new integration tests in
+  `tests/integration/test_paper_writer_interop.py` (synthetic
+  paper-writer v0.6+ fixture; orchestrator dispatch validation;
+  legacy-layout rejection check; paper.v2 schema validation;
+  deck_level_findings rejection). Full suite: 146/146 pass.
+
+### Breaking changes
+
+- **`--type paper` requires per-draft layout.** Legacy
+  `papers/draft{N}.md` flat-file projects get a clear migration
+  message but cannot be reviewed by v0.6.0. Either re-run
+  paper-writer at v0.6+ to produce per-draft directories, or pin
+  beril-adversarial at v0.5.3 for legacy projects. Most BERIL
+  projects have already migrated; this should be a non-event for
+  current paper-writer users.
+
+- **`adversarial_paper.v1.md` replaced with deprecation stub.** v1
+  prompt content is preserved in git history. v0.6.0 orchestrator
+  loads `adversarial_paper.v2.md` only.
+
+### Migration
+
+- **Existing presentation audits** (presentation v1, presentation v2):
+  unchanged. Validator accepts both with the existing rules.
+- **paper-writer integration**: install v0.6.0 of beril-adversarial,
+  refresh deployed skill via `beril-adversarial install-skill
+  <BERIL>`, then paper_writer.sh can invoke `beril-adversarial review
+  --type paper <draft_dir>` and either retire `fallback_reviewer.v1.md`
+  OR keep the fallback as a fast in-loop option (both serve their
+  purposes; see CONTRACT.md).
+
+### Architectural decisions
+
+See `SCHEMA_V2_PAPER_DECISIONS.md` for the schema design rationale,
+class enum analysis (5 shared + 2 parallel + 3 paper-only), and the
+clean-break decision on legacy paper layout. See `CONTRACT.md` for
+the durable interop contract.
+
+### Operator impact
+
+```bash
+pipx install --force <v0.6.0 wheel>
+beril-adversarial install-skill <BERIL_ROOT>
+```
+
+Existing `--type plan|project|presentation` behavior is preserved.
+New `--type paper` behavior expects per-draft layout.
+
+---
+
 ## v0.5.3 — 2026-05-02 (validator: title_quote class-conditional + model docs)
 
 Two fixes from the live A/B comparison run on

@@ -1,0 +1,84 @@
+v0.6.0: paper alignment + programmatic CLI subcommand
+
+Closes the paper-writer ↔ adversarial-paper-reviewer contract drift
+that has been live since paper-writer v0.6.x adopted per-draft
+directory layout (papers/draft_N/manuscript.md replacing flat files).
+The adversarial paper reviewer was on v1 architecture (markdown only,
+flat-file inputs), forcing paper-writer to ship an inline
+fallback_reviewer.v1.md workaround.
+
+v0.6.0 closes the gap on three fronts simultaneously:
+
+1. New paper prompt that reads paper-writer's current dialect
+2. adversarial-review-paper.v2 schema + dual md+json output +
+   auto-correction backstop (mirroring presentation v2)
+3. beril-adversarial review Python CLI subcommand so paper_writer.sh
+   can invoke programmatically without knowing the deep filesystem
+   path to the shell script
+
+What ships
+- prompts/adversarial_paper.v2.md (1379 lines): mirror of
+  presentation v2 architecture; paper-writer v0.6+ per-draft input
+  layout; 10 detection classes (5 shared with presentation: claim_evidence,
+  unbacked_quantitative, register_drift, narrative_weakness,
+  throughline; 2 parallel-renamed: missing_section, section_arc;
+  3 paper-only: citation_reality, report_drift, abstract_body_mismatch).
+  Worked examples for register_drift, citation_reality, report_drift,
+  and the narrative_weakness killshot.
+- adversarial_paper.v1.md replaced with deprecation stub (v1 content
+  in git history).
+- tools/adversarial_review.sh: new run_paper_review_v2 function with
+  early dispatch (mirror of run_presentation_review pattern). --type
+  paper requires per-draft layout; legacy flat-file projects rejected
+  with clear migration message. Output to
+  papers/draft_N/audit/adversarial_review.{md,json}. Skips
+  --consolidate / --reviewer codex / --reviewer claude,codex.
+- tools/validate_presentation_review.py: extended to handle paper.v2
+  schema. Per-schema VALID_CLASSES enforces clean separation
+  (paper-only classes rejected by presentation, presentation-only
+  classes rejected by paper). Auto-correction behavior preserved
+  across all schemas.
+- src/beril_adversarial/commands/review.py: new thin Python wrapper
+  around adversarial_review.sh. CLI: `beril-adversarial review
+  <target> --type {paper|presentation|plan|project} [options]`.
+  Single source of truth (the shell script); wrapper resolves script
+  path + propagates exit codes.
+- src/beril_adversarial/cli.py: wires the review subcommand.
+- CONTRACT.md (new): durable cross-skill interop contract. CLI
+  surface, input expectations, output paths, schema family,
+  auto-correction behavior, fallback_reviewer coordination.
+- SCHEMA_V2_PAPER_DECISIONS.md (new): paper.v2 schema design
+  rationale, class enum analysis, clean-break decision.
+
+Tests
+- 140 unit tests + 6 new integration tests in
+  tests/integration/test_paper_writer_interop.py: synthetic
+  paper-writer v0.6+ fixture passes orchestrator dispatch; legacy
+  flat-file rejected with migration message; --reviewer claude,codex
+  rejected for paper; --consolidate rejected for paper; paper.v2
+  schema validates; deck_level_findings field rejected on v2.
+- Full suite: 146/146 pass.
+
+Breaking changes
+- --type paper requires per-draft layout. Legacy papers/draft{N}.md
+  projects rejected with migration message. Pin v0.5.3 for legacy.
+  Most BERIL projects have already migrated; non-event for current
+  paper-writer users.
+- adversarial_paper.v1.md is now a deprecation stub.
+
+Memory updates
+- project_paper_writer_v0_6.md: paper-writer at v0.6.3, per-draft
+  layout, intentional fallback reviewer (NOT a workaround).
+- project_adversarial_v0_5_x.md: v0.5.x trajectory + layout-detection
+  pattern reused for paper.
+
+Operator impact
+- pipx install --force <wheel>
+- beril-adversarial install-skill <BERIL_ROOT>
+- Existing --type plan/project/presentation unchanged.
+- paper-writer team can now retire fallback OR keep both modes
+  (see CONTRACT.md §"Coordinating retirement").
+
+Cross-skill smoke test added — catches future paper-writer ↔
+adversarial drift early. Pattern documented in
+feedback_cross_skill_contract_drift.md memory entry.

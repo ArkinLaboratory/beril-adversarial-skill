@@ -27,7 +27,16 @@ install + configuration. The review itself is a shell script
 (`tools/adversarial_review.sh`) that invokes `claude` or `codex` with
 the right system prompt — same pattern as BERIL's `tools/review.sh`.
 
-**Status: v0.1 — first release.** Subject to refinement based on usage.
+**Status: v0.6.x — production cycle.** Single-array v2 schemas
+(`adversarial-review-presentation.v2`,
+`adversarial-review-paper.v2`) with auto-correcting validator
+(`tools/validate_presentation_review.py`) and `beril-adversarial
+review` Python CLI subcommand. Cross-skill interop documented in
+`CONTRACT.md`. Active integration with `beril-paper-writer` v0.6+
+and `beril-presentation-maker` v0.3+. Default reviewer model is
+Claude Sonnet 4.6 (`claude-sonnet-4-6`). Iterative improvement
+ongoing — see `RELEASE_NOTES.md` for the v0.4.x → v0.6.x
+trajectory.
 
 ## Slash commands
 
@@ -93,9 +102,19 @@ the right system prompt — same pattern as BERIL's `tools/review.sh`.
 - `project` (default) — reads all canonical artifacts (README,
   RESEARCH_PLAN, REPORT, prior REVIEW_*.md, notebooks, figures,
   references); writes `ADVERSARIAL_REVIEW_N.md` at project root.
-- `paper` — reads `papers/draft{N}.md` (highest N), THROUGHLINE,
-  bibliography, citation-map, REPORT, figures; writes
-  `papers/draft{N}-review.md` co-located with the draft.
+- `paper` (v0.6.0+) — takes `<draft_dir>` as positional argument
+  (paper-writer v0.6+ per-draft directory, e.g.
+  `projects/<id>/papers/draft_N/`). Reads
+  `<draft_dir>/manuscript.md`, `00_throughline.md`, `references.md`,
+  `citation_map.md`, `reframing_log.md` (optional),
+  `methods_provenance.md` (optional), plus project's `REPORT.md` and
+  `RESEARCH_PLAN.md`. Writes
+  `<draft_dir>/audit/adversarial_review.md` (human-readable) +
+  `<draft_dir>/audit/adversarial_review.json` (machine-readable;
+  schema `adversarial-review-paper.v2`). Single-pass; skips
+  `--reviewer claude,codex` fusion and `--consolidate`. Legacy
+  flat-file `papers/draft{N}.md` layout is rejected with a
+  migration message — pin v0.5.3 if you need the legacy path.
 - `presentation` — reads `<draft_dir>/slide_spec.json`,
   `00_throughline.md`, `02_substories.md`,
   `03_slides/qa_anticipated.json`, project's `REPORT.md` and

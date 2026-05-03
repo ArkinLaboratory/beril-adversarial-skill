@@ -799,6 +799,45 @@ goes in — there is only one array. The presence/absence of
   findings array is the ground truth), but you should still try to
   recount correctly. See self-skepticism check #5.
 
+**CRITICAL — unescaped inner quotes break the JSON parser.**
+
+When you quote text from a slide title or REPORT into a JSON string
+field (especially `title_quote`, `issue`, `quote` inside
+report_evidence), the source text often contains `"` characters. If
+you write those raw, the JSON parser sees the string ending
+prematurely and chokes.
+
+**THIS IS UNFIXABLE BY THE VALIDATOR.** Unlike summary count
+mismatches which auto-correct, an unescaped inner quote cannot be
+disambiguated by the parser. The .json file becomes consumer-unsafe
+and the run is wasted.
+
+**Anti-pattern (DO NOT do this):**
+
+```json
+{
+  "title_quote": "Slide titled "Top 10 candidates" shows ..."
+}
+```
+
+The unescaped `"Top 10 candidates"` ends the string at the first
+inner `"`. The whole .json file is rejected.
+
+**Correct approaches — pick ONE per quoted span:**
+
+1. Backslash-escape the inner quotes:
+   `"title_quote": "Slide titled \"Top 10 candidates\" shows ..."`
+2. Use curly quotes (visually identical to humans):
+   `"title_quote": "Slide titled “Top 10 candidates” shows ..."`
+3. Use single quotes inside the string:
+   `"title_quote": "Slide titled 'Top 10 candidates' shows ..."`
+4. Rephrase to avoid nested quotes:
+   `"title_quote": "Slide titled Top 10 candidates shows ..."`
+
+Pick whichever fits naturally. **What is NOT fine: leaving inner
+double-quotes unescaped.** Apply this rule to EVERY string field in
+the JSON.
+
 If you cannot produce valid JSON for any reason, write a JSON file
 with `{"schema_version": "adversarial-review-presentation.v2",
 "error": "<reason>"}` and exit. Do not produce malformed JSON.

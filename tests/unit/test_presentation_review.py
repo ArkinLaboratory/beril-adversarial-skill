@@ -60,13 +60,13 @@ def test_presentation_prompt_file_exists():
     )
 
 
-def test_v1_prompt_is_deprecation_stub():
-    """The v1 prompt file remains in the package as a deprecation stub
-    (sandbox can't `rm` from the host-mounted repo). It must be a stub,
-    not the legacy prompt content."""
-    assert PROMPT_V1_DEPRECATION_STUB.is_file(), (
-        ".v1.md should still exist as a deprecation marker"
-    )
+def test_v1_prompt_either_absent_or_deprecation_stub():
+    """The v1 presentation prompt file may have been git rm'd during a
+    cleanup commit, OR it may still exist as a deprecation stub. Either
+    is fine — what's NOT fine is the legacy v1 content being restored."""
+    if not PROMPT_V1_DEPRECATION_STUB.is_file():
+        # File was cleaned up — that's the cleanest end-state
+        return
     text = PROMPT_V1_DEPRECATION_STUB.read_text(encoding="utf-8")
     assert "DEPRECATED" in text, (
         "v1 file must be the deprecation stub, not the legacy prompt"

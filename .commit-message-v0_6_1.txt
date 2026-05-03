@@ -1,0 +1,39 @@
+v0.6.1: schema-aware labels in validator success message
+
+UX hotfix for v0.6.0. The validator's PASS message and summary_stats
+keys hard-coded the presentation vocabulary ("slide-level finding(s)",
+"deck-level finding(s)") regardless of which schema the JSON used.
+Live first paper review against functional_dark_matter/papers/draft_7
+surfaced the confusion:
+
+    PASS: 11 slide-level finding(s), 5 deck-level finding(s) (...)
+
+…for a paper review. Numbers correct; labels lying.
+
+Fix
+- validate() now returns schema-aware labels in summary_stats:
+  - presentation v1+v2: locus_label="slide-level",
+    non_locus_label="deck-level"
+  - paper v2: locus_label="section-level",
+    non_locus_label="manuscript-wide"
+- main()'s PASS message uses these labels.
+- New summary_stats keys: locus_count, non_locus_count, locus_label,
+  non_locus_label, schema_version, schema_family.
+- Legacy keys (slide_findings, deck_findings) preserved for
+  backwards-compat with any caller that scrapes by name.
+
+Tests
+- 4 new unit tests in test_validate_presentation_review.py:
+  paper schema gets section-level/manuscript-wide labels;
+  presentation schema retains slide-level/deck-level;
+  legacy keys preserved alongside new keys;
+  CLI success message uses paper-aware labels for paper schema.
+- 1 existing integration test updated to assert paper labels.
+- Full suite: 155/155 pass.
+
+No schema changes. No contract changes. Pure UX correction.
+
+Operator impact
+- pipx install --force <wheel>
+- beril-adversarial install-skill <BERIL_ROOT>
+- v0.6.0 is fully functional; v0.6.1 just clears up the labels.

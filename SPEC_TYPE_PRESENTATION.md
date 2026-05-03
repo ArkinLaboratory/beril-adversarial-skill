@@ -1,6 +1,31 @@
 # SPEC: `beril-adversarial --type presentation`
 
-**Status:** Spec for fresh-thread implementation. Author: Adam Arkin / Claude (this conversation, 2026-04-28).
+> **⚠️ HISTORICAL — pre-v0.5.0 design spec.** This document captures
+> the original (April 2026) design for `--type presentation`, which
+> shipped in v0.4.0 with the `adversarial-review-presentation.v1`
+> dual-array schema. **The dual-array v1 schema has since been
+> superseded.** v0.5.0 collapsed to a single `findings[]` array
+> (`adversarial-review-presentation.v2`); v0.6.0 added the parallel
+> `adversarial-review-paper.v2` schema for paper review.
+>
+> **For the current schemas, see `SCHEMA_V2_DECISIONS.md`
+> (presentation) and `SCHEMA_V2_PAPER_DECISIONS.md` (paper).**
+>
+> **For the current cross-skill interop contract, see `CONTRACT.md`.**
+>
+> This file is preserved as historical context for the original
+> design intent and the live-test rationale (`functional_dark_matter`
+> draft_9 detection-class catalog) that drove v0.4.0. Concepts here
+> map to v2 as follows:
+> - "two arrays (findings + deck_level_findings)" → single
+>   `findings[]` array; deck-level findings omit `slide_id`
+> - `slide_id`/`title_quote` for presentation, `section`/
+>   `paragraph_quote` for paper (parallel design)
+> - Schema literal `adversarial-review-presentation.v1` → `.v2`
+> - Severity vocabulary `Critical/Important/Suggested` → `P0/P1/P2`
+>   (plus `info` for narrative_weakness)
+
+**Status (original):** Spec for fresh-thread implementation. Author: Adam Arkin / Claude (this conversation, 2026-04-28).
 
 **Goal:** Add `--type presentation` mode to `beril-adversarial-skill`. The reviewer takes a presentation-maker draft directory, harshly critiques the deck for scientific storytelling + claim-evidence load-bearing + Q&A sharpness + narrative arc, and emits a structured critique that downstream tooling (presentation-maker's review-rewrite loop, planned v0.3.0) can act on.
 

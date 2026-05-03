@@ -1,0 +1,62 @@
+v0.6.2: JSON-validity hardening (unescaped quotes + trailing commas)
+
+First live paper review on draft_7 (post-v0.6.1) found 8 P0s
+including fabricated numbers cross-referenced to reframing_log
+entries marked "escalated but not repaired" — substantively excellent
+output. But the .json was malformed: unescaped inner quotes inside
+paragraph_quote field:
+
+    "paragraph_quote": "Robust rank analysis (Methods §"Experimental Prioritization") identified ..."
+
+Parser saw string end at §", choked on "Experimental". Per memory
+feedback_llm_json_unfixable_in_parser.md: this specific failure mode
+is NOT algorithmically repairable. Fix is at the prompt.
+
+Defensive: also added trailing-comma repair (algorithmically safe per
+feedback_llm_json_trailing_commas_repairable.md). Different LLM JSON
+failure mode; didn't surface in draft_7 but easy to add.
+
+Fix
+- adversarial_paper.v2.md + adversarial_presentation.v2.md: explicit
+  unescaped-inner-quote anti-pattern in JSON validity section. Wrong
+  example matching draft_7 failure; 4 correct alternatives
+  (backslash-escape, curly quotes, single quotes, rephrase). Lists
+  common offender fields per reviewer.
+- validate_presentation_review.py: new lenient_json_load(text) helper.
+  Tries strict first; on failure, regex-strips trailing commas; on
+  second failure raises ORIGINAL error (so operator sees the actual
+  problem, not a confusing post-repair artifact).
+- main(): on JSONDecodeError with "delimiter" in the message, prints
+  diagnostic hint pointing at unescaped-inner-quote as likely cause.
+
+Tests
+- +5 lenient-loader unit tests: clean JSON unchanged; trailing-comma
+  repair (object, array, multi-location); unrepairable failures
+  surface ORIGINAL error.
+- +2 CLI subprocess tests: trailing-comma doc validates; unescaped-
+  inner-quote doc fails with helpful hint.
+- +2 prompt-content tests: paper.v2 + presentation.v2 contain the
+  anti-pattern.
+- Full suite: 164/164 pass.
+
+What v0.6.2 does NOT do
+- Does NOT attempt heuristic repair of unescaped inner quotes —
+  unsafe. The fix is the prompt.
+- Does NOT bump schema (paper.v2 + presentation.v2 unchanged).
+- Does NOT re-validate existing v0.6.0/v0.6.1 audit JSONs — they
+  remain as-is; .md content is intact regardless.
+
+Recurring pattern observation
+Third LLM-output-discipline backstop in the v0.4-v0.6 series:
+- v0.4.1: summary count auto-correction (LLM arithmetic)
+- v0.6.2: JSON validity (unescaped quotes + trailing commas)
+Pattern: prompts try to discipline; validators enforce what's
+algorithmically enforceable; non-repairable failures get sharp
+prompt anti-patterns + diagnostic hints.
+
+Operator impact
+- pipx install --force <wheel>
+- beril-adversarial install-skill <BERIL_ROOT>
+- Next review run picks up the prompt update.
+- Existing v0.6.0/v0.6.1 reviews that produced malformed JSON can
+  be re-run with v0.6.2.

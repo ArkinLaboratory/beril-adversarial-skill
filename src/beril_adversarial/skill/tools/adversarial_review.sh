@@ -575,6 +575,336 @@ if [[ "$REVIEW_TYPE" == "presentation" ]]; then
   run_presentation_review
 fi
 
+# ==============================================================================
+# Paper review v0.6+ path (early dispatch — separate from legacy --type paper).
+#
+# Why early dispatch: paper-writer v0.6.x adopted per-draft directory layout
+# (papers/draft_N/manuscript.md + 00_throughline.md + ...) replacing the
+# legacy flat-file layout (papers/draft{N}.md). The PROJECT_ID-based
+# resolution + cd "$BERIL_ROOT" below would assume the legacy shape.
+#
+# In v0.6.0 we do a clean break: --type paper now requires per-draft layout
+# and emits dual md+json output to papers/draft_N/audit/. Legacy flat-file
+# papers project layouts are explicitly rejected with a migration message.
+#
+# The reviewer:
+#   - reads manuscript.md + 00_throughline.md + REPORT.md + RESEARCH_PLAN.md +
+#     references.md + citation_map.md + reframing_log.md + methods_provenance.md
+#     (+ optional figures_inventory.md/figures_manifest.tsv +
+#     tables_inventory.md/tables_manifest.tsv);
+#   - writes BOTH audit/adversarial_review.md and audit/adversarial_review.json
+#     into the draft_dir (the .json is the consumer contract for the planned
+#     paper-writer review-rewrite loop, v0.7+).
+#
+# Skipped (vs. legacy paper path):
+#   - --consolidate (v0.6.0 clean break; revisit if needed in v0.6.x)
+#   - --reviewer codex / --reviewer claude,codex (single-pass v1; mirror
+#     presentation v2 discipline)
+#   - compliance critic + citation verification gate (the prompt enforces
+#     JSON validity itself; auto-correction backstops summary mismatches)
+#   - --depth quick|deep (single depth for v1; revisit if needed)
+# ==============================================================================
+run_paper_review_v2() {
+  if [[ "$CONSOLIDATE" == "1" ]]; then
+    echo "Error: --consolidate is not supported for --type paper in v0.6.0." >&2
+    echo "Iteration is owned by paper-writer's review-rewrite loop (v0.7+)." >&2
+    exit 1
+  fi
+  if [[ "$REVIEWER" == "claude,codex" ]]; then
+    echo "Error: --reviewer claude,codex (fusion) is not supported for --type paper in v0.6.0." >&2
+    exit 1
+  fi
+  if [[ "$REVIEWER" == "codex" ]]; then
+    echo "Error: --reviewer codex is not supported for --type paper in v0.6.0." >&2
+    echo "The paper reviewer requires programmatic Write verification (claude only)." >&2
+    exit 1
+  fi
+
+  if [[ -z "$PROJECT_ID" ]]; then
+    echo "Error: --type paper requires a draft_dir argument" >&2
+    echo "  Example: adversarial_review.sh /abs/path/to/papers/draft_1 --type paper" >&2
+    echo "  (paper-writer v0.6.x per-draft layout)" >&2
+    exit 1
+  fi
+
+  # PROJECT_ID is being used as the draft_dir for this code path.
+  local DRAFT_DIR="$PROJECT_ID"
+
+  if [[ ! -d "$DRAFT_DIR" ]]; then
+    echo "Error: draft_dir does not exist: $DRAFT_DIR" >&2
+    exit 2
+  fi
+  DRAFT_DIR="$(cd "$DRAFT_DIR" && pwd -P)"
+
+  # Required input files (per SCHEMA_V2_PAPER_DECISIONS.md §Inputs)
+  local MANUSCRIPT="$DRAFT_DIR/manuscript.md"
+  local THROUGHLINE="$DRAFT_DIR/00_throughline.md"
+  local REFERENCES="$DRAFT_DIR/references.md"
+  local CITATION_MAP="$DRAFT_DIR/citation_map.md"
+  local REFRAMING_LOG="$DRAFT_DIR/reframing_log.md"
+
+  # Detect layout: per-draft (v0.6+) requires manuscript.md present.
+  # Legacy flat-file layout (papers/draftN.md) is no longer supported here.
+  if [[ ! -f "$MANUSCRIPT" ]]; then
+    # Possible legacy flat-file project? Detect for a helpful error.
+    local maybe_legacy_dir
+    maybe_legacy_dir="$(cd "$DRAFT_DIR/.." && pwd -P)"
+    if [[ -d "$maybe_legacy_dir" ]]; then
+      local legacy_count
+      legacy_count="$(ls -1 "$maybe_legacy_dir"/draft*.md 2>/dev/null | grep -c -E 'draft[0-9]+\.md$' || true)"
+      if [[ "${legacy_count:-0}" -gt 0 ]]; then
+        echo "Error: detected legacy flat-file paper layout (papers/draft{N}.md)." >&2
+        echo "  v0.6.0 of beril-adversarial requires the per-draft directory layout" >&2
+        echo "  used by paper-writer v0.6+: papers/draft_N/manuscript.md + 00_throughline.md + ..." >&2
+        echo "  Migration: re-run paper-writer at v0.6+ to produce the per-draft layout, OR" >&2
+        echo "  use the legacy path: bash adversarial_review.sh <project_id> --type paper" >&2
+        echo "  (legacy path is deprecated and will be removed in a future version.)" >&2
+        exit 2
+      fi
+    fi
+    echo "Error: required input missing: $MANUSCRIPT" >&2
+    echo "  draft_dir does not look like a paper-writer v0.6+ draft directory." >&2
+    exit 2
+  fi
+
+  # Other required files
+  for required in "$THROUGHLINE" "$REFERENCES" "$CITATION_MAP"; do
+    if [[ ! -f "$required" ]]; then
+      echo "Error: required input missing: $required" >&2
+      echo "  paper-writer v0.6+ drafts must include manuscript.md, 00_throughline.md," >&2
+      echo "  references.md, and citation_map.md at minimum." >&2
+      exit 2
+    fi
+  done
+
+  # Optional inputs (warning if missing, not error)
+  local REFRAMING_HINT=""
+  if [[ -f "$REFRAMING_LOG" ]]; then
+    REFRAMING_HINT="
+  - reframing_log.md (auditable REPORT-drift acknowledgments): $REFRAMING_LOG"
+  else
+    echo "Warning: reframing_log.md not found at $REFRAMING_LOG; report_drift detection will lack acknowledgment context." >&2
+  fi
+
+  local METHODS_PROVENANCE="$DRAFT_DIR/methods_provenance.md"
+  local METHODS_HINT=""
+  if [[ -f "$METHODS_PROVENANCE" ]]; then
+    METHODS_HINT="
+  - methods_provenance.md (tools/versions/snapshots): $METHODS_PROVENANCE"
+  fi
+
+  local FIGURES_INV="$DRAFT_DIR/figures_inventory.md"
+  local FIGURES_HINT=""
+  if [[ -f "$FIGURES_INV" ]]; then
+    FIGURES_HINT="
+  - figures_inventory.md: $FIGURES_INV"
+  fi
+
+  local TABLES_INV="$DRAFT_DIR/tables_inventory.md"
+  local TABLES_HINT=""
+  if [[ -f "$TABLES_INV" ]]; then
+    TABLES_HINT="
+  - tables_inventory.md (v0.6+): $TABLES_INV"
+  fi
+
+  # project_dir = draft_dir/../.. (papers/draft_N → ../.. → project_dir)
+  local PROJECT_DIR_LOCAL
+  PROJECT_DIR_LOCAL="$(cd "$DRAFT_DIR/../.." && pwd -P)"
+  local REPORT_FILE="$PROJECT_DIR_LOCAL/REPORT.md"
+  local PLAN_FILE="$PROJECT_DIR_LOCAL/RESEARCH_PLAN.md"
+
+  if [[ ! -f "$REPORT_FILE" ]]; then
+    echo "Error: REPORT.md not found at $REPORT_FILE" >&2
+    echo "  Resolved project_dir from draft_dir/../.. = $PROJECT_DIR_LOCAL" >&2
+    echo "  REPORT is the truth source for quantitative grounding + report_drift detection." >&2
+    exit 2
+  fi
+  if [[ ! -f "$PLAN_FILE" ]]; then
+    echo "Warning: RESEARCH_PLAN.md not found at $PLAN_FILE; missing-section detection will lack plan context." >&2
+    PLAN_FILE=""
+  fi
+
+  # project_id from the path (best-effort, used in YAML frontmatter).
+  local PROJECT_ID_LOCAL
+  PROJECT_ID_LOCAL="$(basename "$PROJECT_DIR_LOCAL")"
+
+  # Draft number from the directory name (best-effort).
+  local DRAFT_BASENAME DRAFT_NUMBER
+  DRAFT_BASENAME="$(basename "$DRAFT_DIR")"
+  DRAFT_NUMBER="${DRAFT_BASENAME#draft_}"
+  if [[ "$DRAFT_NUMBER" == "$DRAFT_BASENAME" ]]; then
+    DRAFT_NUMBER="$DRAFT_BASENAME"
+  fi
+
+  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_paper.v2.md"
+  if [[ ! -f "$SYSTEM_PROMPT_FILE" ]]; then
+    echo "Error: paper system prompt not found: $SYSTEM_PROMPT_FILE" >&2
+    echo "Run 'beril-adversarial install-skill <BERIL_ROOT>' to refresh." >&2
+    echo "(If you see adversarial_paper.v1.md but not .v2.md, the installed skill" >&2
+    echo " is from a v0.5.x build; refresh via pipx install --force <wheel> +" >&2
+    echo " beril-adversarial install-skill <BERIL>.)" >&2
+    exit 2
+  fi
+
+  # Output paths (under draft_dir/audit/)
+  local AUDIT_DIR="$DRAFT_DIR/audit"
+  mkdir -p "$AUDIT_DIR"
+  local OUT_MD="$AUDIT_DIR/adversarial_review.md"
+  local OUT_JSON="$AUDIT_DIR/adversarial_review.json"
+
+  # Resolve model
+  if [[ -z "$MODEL" ]]; then
+    MODEL="$CLAUDE_DEFAULT_MODEL"
+  fi
+
+  # Tools: same narrow grant as presentation v2.
+  # NO WebSearch in v0.6.0 (citation reality verified against
+  # references.md + citation_map.md). NO Bash. NO Agent.
+  local PAPER_TOOLS="Read,Write,Grep,Glob"
+
+  local REVIEW_PROMPT="Adversarially review the paper draft at:
+  ${DRAFT_DIR}
+
+Inputs (read all in full before flagging anything):
+  - manuscript.md (the assembled draft): ${MANUSCRIPT}
+  - 00_throughline.md (chosen throughline + evidence map): ${THROUGHLINE}
+  - REPORT.md (truth source for quantitative grounding + report_drift): ${REPORT_FILE}
+  - RESEARCH_PLAN.md: ${PLAN_FILE:-(not found — proceed without)}
+  - references.md (bibliography): ${REFERENCES}
+  - citation_map.md (claim→citation contract): ${CITATION_MAP}${REFRAMING_HINT}${METHODS_HINT}${FIGURES_HINT}${TABLES_HINT}
+
+YOUR JOB: produce TWO files via the Write tool:
+  1. ${OUT_JSON}  (machine-readable; consumer contract; write FIRST)
+  2. ${OUT_MD}    (human-readable report; write SECOND)
+
+Both paths are absolute — use them exactly as given.
+
+The reviews are delivered ONLY by invoking Write twice. Producing
+either review as a chat response means it is lost. Before producing
+your final response, verify in your reasoning that you invoked Write
+exactly twice, once for each path above. If you cannot point at two
+Write tool calls you made, you have not finished the task — invoke
+Write now.
+
+In the JSON, set:
+  - schema_version: adversarial-review-paper.v2
+  - reviewer_model: ${MODEL}
+  - prompt_version: adversarial_paper.v2
+  - project_id: ${PROJECT_ID_LOCAL}
+  - draft_number: ${DRAFT_NUMBER}
+  - draft_dir: ${DRAFT_DIR}
+
+Use the SINGLE-ARRAY schema v2: ALL findings (section-level and
+manuscript-wide) live in the findings[] array. Manuscript-wide
+findings (narrative_weakness, missing_section, throughline-level
+issues, abstract_body_mismatch when truly cross-section) are signaled
+by absence of section. Do NOT emit a deck_level_findings field — that
+was the presentation v1 schema, removed in v2 of both schemas.
+
+In the .md frontmatter, set:
+  - reviewer: BERIL Adversarial Review (Paper, ${MODEL})
+  - project_id: ${PROJECT_ID_LOCAL}
+  - draft_number: ${DRAFT_NUMBER}
+  - prompt_version: adversarial_paper.v2
+
+Follow the system prompt's detection protocol exactly. Walk every
+substantive claim; run all 10 detection classes. Do not stop early.
+Quote both sides for every claim_evidence, register_drift,
+unbacked_quantitative, and report_drift finding. Recount the summary
+block before emitting JSON (validator will auto-correct if you
+miscount, but try)."
+
+  echo "Invoking Claude paper reviewer (model: ${MODEL})..."
+  echo "  Draft dir:   ${DRAFT_DIR}"
+  echo "  Manuscript:  ${MANUSCRIPT}"
+  echo "  Report:      ${REPORT_FILE}"
+  echo "  Output MD:   ${OUT_MD}"
+  echo "  Output JSON: ${OUT_JSON}"
+
+  if ! command -v claude &>/dev/null; then
+    echo "Error: 'claude' CLI is not installed or not in PATH" >&2
+    exit 3
+  fi
+
+  local sys_prompt
+  sys_prompt="$(cat "$SYSTEM_PROMPT_FILE")"
+
+  local rc=0
+  CLAUDECODE= claude -p \
+    --model "$MODEL" \
+    --system-prompt "$sys_prompt" \
+    --allowedTools "$PAPER_TOOLS" \
+    --dangerously-skip-permissions \
+    "$REVIEW_PROMPT" \
+    < /dev/null \
+    || rc=$?
+
+  if [[ $rc -ne 0 ]]; then
+    echo "Error: claude invocation failed (exit $rc)" >&2
+    exit 2
+  fi
+
+  # Verify both output files landed.
+  local missing=()
+  if [[ ! -s "$OUT_JSON" ]]; then
+    missing+=( "$OUT_JSON" )
+  fi
+  if [[ ! -s "$OUT_MD" ]]; then
+    missing+=( "$OUT_MD" )
+  fi
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Error: reviewer did not write the expected files:" >&2
+    for f in "${missing[@]}"; do
+      echo "  - $f" >&2
+    done
+    echo "This is a known stochastic failure mode of claude -p; re-run." >&2
+    exit 2
+  fi
+
+  # Programmatic post-checker (validator handles paper.v2 + presentation.v1/v2)
+  local VALIDATOR="$SKILL_DIR/tools/validate_review.py"
+  if [[ ! -f "$VALIDATOR" ]]; then
+    # Fallback to old name during the v0.5 → v0.6 transition
+    VALIDATOR="$SKILL_DIR/tools/validate_presentation_review.py"
+  fi
+  if command -v python3 &>/dev/null && [[ -f "$VALIDATOR" ]]; then
+    local validator_rc=0
+    python3 "$VALIDATOR" "$OUT_JSON" || validator_rc=$?
+    case $validator_rc in
+      0)
+        : ;;  # pass — clean
+      2)
+        echo "Note: validator exit 2 — review shipped. See validator stderr above for details." >&2
+        ;;
+      1)
+        echo "" >&2
+        echo "================================================================" >&2
+        echo "JSON VALIDATION FAILED — non-correctable error(s)" >&2
+        echo "================================================================" >&2
+        echo "  The reviewer produced a JSON file with structural problems" >&2
+        echo "  that cannot be auto-corrected (schema violation, invalid enum" >&2
+        echo "  values, duplicate IDs, narrative_weakness invariants)." >&2
+        echo "  The .md report may still be useful, but the .json is not safe" >&2
+        echo "  for the consumer (paper-writer review-rewrite loop)." >&2
+        echo "  Re-running often resolves stochastic prompt-discipline failures." >&2
+        echo "================================================================" >&2
+        ;;
+      *)
+        echo "Warning: validator exited with unexpected code $validator_rc" >&2
+        ;;
+    esac
+  fi
+
+  echo "Paper review complete."
+  echo "  JSON: ${OUT_JSON}"
+  echo "  MD:   ${OUT_MD}"
+  exit 0
+}
+
+if [[ "$REVIEW_TYPE" == "paper" ]]; then
+  run_paper_review_v2
+fi
+
 # --- Resolve PROJECT_ID ---
 if [[ -z "$PROJECT_ID" ]]; then
   # Auto-detect from cwd if inside projects/<id>/...

@@ -5,15 +5,17 @@ Dispatches to command modules under beril_adversarial.commands/.
 Subcommands:
   install-skill  Copy shipped skill/ tree into BERIL/.claude/skills/beril-adversarial/.
   configure      Verify claude/codex CLIs are present and tools work.
-
-Review and consolidation are NOT Python subcommands — they're handled
-by the shipped shell script tools/adversarial_review.sh, which the
-slash command invokes directly. Same pattern as BERIL's tools/review.sh.
+  review         Run an adversarial review (paper, presentation, plan, project).
+                 Programmatic entry point — thin wrapper around the shipped
+                 tools/adversarial_review.sh shell script. Suitable for
+                 invocation from other skills' orchestrators (e.g.,
+                 paper_writer.sh).
 
 Exit codes:
   0  success
   1  user error (bad args, missing BERIL_ROOT, missing file user should fix)
-  2  runtime error (subprocess failed, package data missing)
+  2  runtime error (subprocess failed; OR validator auto-corrected with
+     advisory warnings — the .json is still consumer-safe)
   3  config error (claude/codex not installed; tools unavailable)
 """
 
@@ -27,6 +29,7 @@ from beril_adversarial import __version__
 from beril_adversarial.commands import (
     configure,
     install_skill,
+    review,
 )
 
 
@@ -48,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_skill.add_parser(subparsers)
     configure.add_parser(subparsers)
+    review.add_parser(subparsers)
 
     return p
 

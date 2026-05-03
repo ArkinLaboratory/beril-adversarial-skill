@@ -857,3 +857,406 @@ def test_cli_handles_path_with_special_chars(tmp_path: Path):
         timeout=10,
     )
     assert result.returncode == 0, f"path with spaces broke validator: {result.stderr}"
+
+
+# ============================================================================
+# Paper schema (adversarial-review-paper.v2) — v0.6.0 additions
+# ============================================================================
+
+
+def _make_paper_finding(
+    fid="F001",
+    cls="claim_evidence",
+    severity="P1",
+    confidence="high",
+    section="Results",
+    line_range="L142-148",
+    paragraph_quote="some paragraph",
+    issue="some issue",
+    fix_target="results.v1.md",
+    fix_hint="some fix",
+    **extra,
+):
+    """Build a minimum-valid paper section-level finding."""
+    f = {
+        "id": fid, "class": cls, "severity": severity, "confidence": confidence,
+        "section": section, "line_range": line_range,
+        "paragraph_quote": paragraph_quote,
+        "issue": issue, "fix_target": fix_target, "fix_hint": fix_hint,
+    }
+    f.update(extra)
+    return f
+
+
+def _make_paper_manuscript_wide_finding(
+    fid="F002",
+    cls="narrative_weakness",
+    severity="info",
+    confidence="high",
+    issue="manuscript-wide issue",
+    fix_target="discussion.v1.md",
+    fix_hint="add limitations paragraph",
+    **extra,
+):
+    """Build a manuscript-wide paper finding (no section field)."""
+    f = {
+        "id": fid, "class": cls, "severity": severity, "confidence": confidence,
+        "issue": issue, "fix_target": fix_target, "fix_hint": fix_hint,
+    }
+    f.update(extra)
+    return f
+
+
+def _make_paper_doc(findings=None, summary=None):
+    """Minimum-valid paper.v2 doc (single findings[] array, no
+    deck_level_findings field)."""
+    findings = list(findings or [])
+    if summary is None:
+        from collections import Counter
+        sev = Counter(f["severity"] for f in findings)
+        cls = Counter(f["class"] for f in findings)
+        summary = {
+            "total_findings": len(findings),
+            "by_severity": dict(sev),
+            "by_class": dict(cls),
+        }
+    return {
+        "schema_version": "adversarial-review-paper.v2",
+        "draft_dir": "/tmp/fake/papers/draft_1",
+        "project_id": "fake_project",
+        "draft_number": 1,
+        "reviewed_at": "2026-05-02T13:42:00Z",
+        "reviewer_model": "claude-sonnet-4-6",
+        "prompt_version": "adversarial_paper.v2",
+        "tier": "STRONG",
+        "summary": summary,
+        "findings": findings,
+    }
+
+
+def test_paper_v2_minimal_valid_doc_passes():
+    doc = _make_paper_doc(findings=[
+        _make_paper_finding(fid="F001"),
+        _make_paper_manuscript_wide_finding(fid="F002"),
+    ])
+    errors, _, _, stats = validator.validate(doc)
+    assert errors == [], f"unexpected errors: {errors}"
+    assert stats["slide_findings"] == 1  # the section-level finding
+    assert stats["deck_findings"] == 1   # the manuscript-wide finding
+
+
+def test_paper_v2_rejects_deck_level_findings_field():
+    """Paper v2 must NOT have a deck_level_findings field — single array."""
+    doc = _make_paper_doc(findings=[_make_paper_finding()])
+    doc["deck_level_findings"] = []
+    errors, _, _, _ = validator.validate(doc)
+    assert any("deck_level_findings" in e for e in errors)
+
+
+def test_paper_v2_finding_without_section_is_valid():
+    """A paper finding without `section` is a manuscript-wide finding —
+    valid, just no section-level fields required."""
+    doc = _make_paper_doc(findings=[
+        _make_paper_manuscript_wide_finding(fid="F001", cls="missing_section", severity="P1"),
+        _make_paper_manuscript_wide_finding(fid="F002", cls="narrative_weakness", severity="info"),
+    ])
+    errors, _, _, _ = validator.validate(doc)
+    assert errors == [], f"manuscript-wide findings should validate: {errors}"
+
+
+def test_paper_v2_finding_with_section_requires_line_range():
+    """If section is present, line_range is required."""
+    bad = _make_paper_finding()
+    del bad["line_range"]
+    doc = _make_paper_doc(findings=[bad])
+    errors, _, _, _ = validator.validate(doc)
+    assert any("line_range" in e for e in errors)
+
+
+def test_paper_v2_paragraph_quote_required_for_register_drift():
+    """register_drift criticism targets specific paper text;
+    paragraph_quote is required (mirror of presentation v0.5.3
+    title_quote class-conditional rule)."""
+    bad = _make_paper_finding(cls="register_drift")
+    del bad["paragraph_quote"]
+    doc = _make_paper_doc(findings=[bad])
+    errors, _, _, _ = validator.validate(doc)
+    assert any("paragraph_quote" in e for e in errors)
+
+
+def test_paper_v2_paragraph_quote_optional_for_section_arc():
+    """section_arc criticism is structural, not text-specific;
+    paragraph_quote is optional."""
+    f = _make_paper_finding(cls="section_arc", severity="P1")
+    del f["paragraph_quote"]
+    doc = _make_paper_doc(findings=[f])
+    errors, _, _, _ = validator.validate(doc)
+    # No error about paragraph_quote
+    assert not any("paragraph_quote" in e for e in errors), (
+        f"section_arc should not require paragraph_quote: {errors}"
+    )
+
+
+def test_paper_v2_rejects_presentation_only_class():
+    """Paper schema must not accept presentation-only classes
+    (qa_softball, missing_slide, substory_arc)."""
+    bad = _make_paper_finding(cls="qa_softball")  # presentation-only
+    doc = _make_paper_doc(findings=[bad])
+    errors, _, _, _ = validator.validate(doc)
+    assert any("class=" in e and "qa_softball" in e for e in errors)
+
+
+def test_paper_v2_accepts_paper_only_class():
+    """Paper schema must accept paper-only classes (citation_reality,
+    report_drift, abstract_body_mismatch)."""
+    for paper_class in ("citation_reality", "report_drift",
+                        "abstract_body_mismatch"):
+        f = _make_paper_finding(cls=paper_class, severity="P1")
+        doc = _make_paper_doc(findings=[f])
+        errors, _, _, _ = validator.validate(doc)
+        assert not any("class=" in e and paper_class in e for e in errors), (
+            f"paper class {paper_class} should be accepted: {errors}"
+        )
+
+
+def test_presentation_v2_rejects_paper_only_class():
+    """Presentation schema must NOT accept paper-only classes (clean
+    separation)."""
+    bad = _make_finding(cls="citation_reality")  # paper-only
+    doc = _make_doc(findings=[bad])  # default schema_version=presentation v2
+    errors, _, _, _ = validator.validate(doc)
+    assert any("class=" in e and "citation_reality" in e for e in errors)
+
+
+def test_paper_v2_summary_mismatch_auto_corrects(tmp_path: Path):
+    """Auto-correction works on paper v2 docs the same way as
+    presentation v2."""
+    p = tmp_path / "paper_review.json"
+    doc = _make_paper_doc(findings=[
+        _make_paper_finding(severity="P0"),
+        _make_paper_finding(fid="F002", severity="P0"),
+    ])
+    doc["summary"]["by_severity"] = {"P0": 1, "P1": 1}  # wrong
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(VALIDATOR_PATH), str(p)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 2  # auto-correct exit code
+    rewritten = json.loads(p.read_text(encoding="utf-8"))
+    assert rewritten["summary"]["by_severity"] == {"P0": 2}
+
+
+# ============================================================================
+# v0.6.1 — schema-aware labels in summary_stats
+# ============================================================================
+
+
+def test_paper_schema_uses_section_level_and_manuscript_wide_labels():
+    """v0.6.1 fix: paper schema must report 'section-level' and
+    'manuscript-wide' counts, not 'slide-level' / 'deck-level'."""
+    doc = _make_paper_doc(findings=[
+        _make_paper_finding(fid="F001"),
+        _make_paper_manuscript_wide_finding(fid="F002"),
+    ])
+    _, _, _, stats = validator.validate(doc)
+    assert stats["locus_label"] == "section-level"
+    assert stats["non_locus_label"] == "manuscript-wide"
+    assert stats["schema_family"] == "paper"
+    assert stats["schema_version"] == "adversarial-review-paper.v2"
+    assert stats["locus_count"] == 1
+    assert stats["non_locus_count"] == 1
+
+
+def test_presentation_schema_uses_slide_level_and_deck_level_labels():
+    """Presentation schema retains 'slide-level' / 'deck-level' labels
+    (no behavior change in v0.6.1)."""
+    doc = _make_doc(
+        findings=[_make_finding()],
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="narrative_weakness", severity="info"
+            )
+        ],
+    )
+    _, _, _, stats = validator.validate(doc)
+    assert stats["locus_label"] == "slide-level"
+    assert stats["non_locus_label"] == "deck-level"
+    assert stats["schema_family"] == "presentation"
+
+
+def test_legacy_summary_stat_keys_preserved_for_backwards_compat():
+    """v0.6.1 added new locus_count / non_locus_count keys but kept the
+    legacy slide_findings / deck_findings keys for backwards compat
+    with any caller that scrapes by name."""
+    doc = _make_paper_doc(findings=[
+        _make_paper_finding(fid="F001"),
+        _make_paper_manuscript_wide_finding(fid="F002"),
+    ])
+    _, _, _, stats = validator.validate(doc)
+    # Legacy keys still populated and equal to the new keys
+    assert "slide_findings" in stats
+    assert "deck_findings" in stats
+    assert stats["slide_findings"] == stats["locus_count"]
+    assert stats["deck_findings"] == stats["non_locus_count"]
+
+
+def test_cli_paper_pass_message_uses_section_level_label(tmp_path: Path):
+    """End-to-end: invoking the validator on a paper.v2 doc should print
+    'section-level' in the success message (not 'slide-level')."""
+    p = tmp_path / "paper_review.json"
+    doc = _make_paper_doc(findings=[
+        _make_paper_finding(fid="F001"),
+        _make_paper_manuscript_wide_finding(
+            fid="F002", cls="narrative_weakness", severity="info"
+        ),
+    ])
+    p.write_text(json.dumps(doc), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(VALIDATOR_PATH), str(p)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, (
+        f"validator unexpectedly failed: {result.stderr}"
+    )
+    assert "section-level" in result.stdout
+    assert "manuscript-wide" in result.stdout
+    assert "slide-level" not in result.stdout
+    assert "deck-level" not in result.stdout
+
+
+# ============================================================================
+# v0.6.2 — lenient JSON loader (trailing-comma repair)
+# ============================================================================
+
+
+def test_lenient_json_load_passes_clean_json():
+    """Valid JSON parses byte-identically through lenient_json_load."""
+    text = '{"a": 1, "b": [2, 3, 4]}'
+    assert validator.lenient_json_load(text) == {"a": 1, "b": [2, 3, 4]}
+
+
+def test_lenient_json_load_repairs_trailing_comma_in_object():
+    """Single LLM-emitted trailing comma before `}` is repairable."""
+    text = '{"a": 1, "b": 2,}'
+    assert validator.lenient_json_load(text) == {"a": 1, "b": 2}
+
+
+def test_lenient_json_load_repairs_trailing_comma_in_array():
+    """Single LLM-emitted trailing comma before `]` is repairable."""
+    text = '{"items": [1, 2, 3,]}'
+    assert validator.lenient_json_load(text) == {"items": [1, 2, 3]}
+
+
+def test_lenient_json_load_repairs_multiple_trailing_commas():
+    """Several trailing commas in one doc — all repaired in one pass."""
+    text = '{"a": [1,], "b": {"c": 2,},}'
+    assert validator.lenient_json_load(text) == {"a": [1], "b": {"c": 2}}
+
+
+def test_lenient_json_load_raises_original_error_on_unrepairable_failure():
+    """Unescaped inner quotes are NOT repairable — original error
+    surfaces, not a confusing post-repair error from a different
+    location."""
+    text = '{"key": "value with "inner" quote", "other": 1}'
+    with pytest.raises(json.JSONDecodeError) as exc:
+        validator.lenient_json_load(text)
+    # The repair pass should NOT have changed which error gets raised
+    # (the unescaped quote is the actual problem, not anything the
+    # repair touched).
+    assert "delimiter" in str(exc.value) or "Expecting" in str(exc.value)
+
+
+def test_cli_lenient_loader_handles_trailing_comma_doc(tmp_path: Path):
+    """End-to-end: a JSON file with a trailing comma should validate
+    cleanly through the CLI (the lenient loader repairs it before
+    schema validation runs)."""
+    p = tmp_path / "trailing_comma_review.json"
+    # Build a minimum-valid presentation v2 doc with a trailing comma
+    # in the findings array
+    text = '''{
+  "schema_version": "adversarial-review-presentation.v2",
+  "draft_dir": "/tmp/fake",
+  "project_id": "fake",
+  "draft_number": 1,
+  "reviewed_at": "2026-05-02T00:00:00Z",
+  "reviewer_model": "claude-sonnet-4-6",
+  "prompt_version": "adversarial_presentation.v2",
+  "tier": "STRONG",
+  "summary": {"total_findings": 1, "by_severity": {"info": 1}, "by_class": {"narrative_weakness": 1}},
+  "findings": [
+    {"id": "F001", "class": "narrative_weakness", "severity": "info", "confidence": "high", "issue": "x", "fix_target": "slide_compose.v1.md", "fix_hint": "y"},
+  ]
+}'''
+    p.write_text(text, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(VALIDATOR_PATH), str(p)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, (
+        f"trailing-comma doc should pass via lenient loader; got "
+        f"stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "PASS" in result.stdout
+
+
+def test_cli_unescaped_inner_quote_fails_with_helpful_hint(tmp_path: Path):
+    """Unescaped inner quote (the draft_7 failure mode) cannot be
+    repaired and should fail with a helpful hint pointing at the
+    likely cause."""
+    p = tmp_path / "unescaped_quote_review.json"
+    # Mimic the draft_7 failure: an unescaped quote inside paragraph_quote
+    text = '''{
+  "schema_version": "adversarial-review-paper.v2",
+  "draft_dir": "/tmp/fake",
+  "project_id": "fake",
+  "draft_number": 1,
+  "reviewed_at": "2026-05-02T00:00:00Z",
+  "reviewer_model": "claude-sonnet-4-6",
+  "prompt_version": "adversarial_paper.v2",
+  "tier": "STRONG",
+  "summary": {"total_findings": 0, "by_severity": {}, "by_class": {}},
+  "findings": [
+    {"id": "F001", "class": "claim_evidence", "severity": "P1", "confidence": "high", "section": "Results", "line_range": "L1", "paragraph_quote": "Methods §"Phase 10" identified ...", "issue": "x", "fix_target": "results.v1.md", "fix_hint": "y"}
+  ]
+}'''
+    p.write_text(text, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(VALIDATOR_PATH), str(p)],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 1
+    assert "not valid JSON" in result.stderr
+    # The hint about unescaped quotes should appear (helps the operator
+    # diagnose without context-switching to docs).
+    assert "unescaped" in result.stderr.lower() or "inner" in result.stderr.lower()
+
+
+# ============================================================================
+# v0.6.2 — prompt-side anti-pattern guidance
+# ============================================================================
+
+
+PAPER_V2_PROMPT = SKILL_DIR_SRC / "prompts" / "adversarial_paper.v2.md"
+PRESENTATION_V2_PROMPT = SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v2.md"
+
+
+def test_paper_prompt_includes_unescaped_quote_anti_pattern():
+    """v0.6.2: paper.v2 prompt must include the explicit anti-pattern
+    against unescaped inner quotes in JSON string fields."""
+    text = PAPER_V2_PROMPT.read_text(encoding="utf-8")
+    assert "unescaped inner quotes" in text.lower() or "UNFIXABLE BY THE VALIDATOR" in text, (
+        "paper.v2 prompt missing unescaped-quote anti-pattern (v0.6.2 fix)"
+    )
+    # Should show all 4 correct approaches
+    assert "Backslash-escape" in text
+    assert "curly quotes" in text
+
+
+def test_presentation_prompt_includes_unescaped_quote_anti_pattern():
+    """v0.6.2: presentation.v2 prompt must also include the anti-pattern
+    (different reviewer, same JSON failure mode)."""
+    text = PRESENTATION_V2_PROMPT.read_text(encoding="utf-8")
+    assert "unescaped inner quotes" in text.lower() or "UNFIXABLE BY THE VALIDATOR" in text, (
+        "presentation.v2 prompt missing unescaped-quote anti-pattern (v0.6.2 fix)"
+    )

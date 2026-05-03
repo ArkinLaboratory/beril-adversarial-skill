@@ -12,17 +12,35 @@ flagging of inferential leaps.
 
 ## Status
 
-v0.4.0 — adds `--type presentation` mode for adversarial review of
-`beril-presentation-maker` draft directories. Single-pass v1; 7
-detection classes (throughline integrity, claim-evidence load-bearing,
-register drift, Q&A softball, substory arc, missing slides, narrative
-weakness); dual output (`audit/adversarial_review.md` +
-`audit/adversarial_review.json` with `schema_version
-adversarial-review-presentation.v1` as consumer contract for the
-presentation-maker review-rewrite loop). v0.3.0 added additivity
-discipline for multi-round reviews. v0.2.0 added the programmatic
-citation verification gate. System prompts remain at `.v1.md`; no
-breaking changes to existing `--type plan|project|paper` modes.
+**Current: v0.6.2** — see `RELEASE_NOTES.md` for the full v0.4.x →
+v0.6.x trajectory. Highlights since v0.4.0:
+
+- **v0.6.x — paper alignment + programmatic CLI subcommand.** Paper
+  reviewer rewritten to read paper-writer v0.6+ per-draft directory
+  layout (`papers/draft_N/manuscript.md` + `00_throughline.md` +
+  `references.md` + `citation_map.md` + ...). Dual md+json output
+  with schema `adversarial-review-paper.v2`. New
+  `beril-adversarial review <target> --type X` Python CLI subcommand
+  for programmatic invocation from other skills. Cross-skill interop
+  pinned in `CONTRACT.md`. Schema-aware labels in validator output
+  ("section-level"/"manuscript-wide" for paper; "slide-level"/
+  "deck-level" for presentation). Unescaped-quote anti-pattern in
+  both v2 prompts; trailing-comma repair in the validator.
+- **v0.5.x — single-array schema bump for presentation.** Schema
+  collapsed to one `findings[]` array (was two). Auto-correcting
+  validator backstops LLM summary count mismatches (sidecar
+  preserves the original miscount for forensics). Default model
+  bumped to Claude Sonnet 4.6. Cross-skill layout-detection added
+  for presentation-maker v0.3.1+ zone reorg
+  (deliverable/narrative/working/audit).
+- **v0.4.0 — adds `--type presentation` mode** for adversarial review
+  of `beril-presentation-maker` draft directories.
+- **v0.3.0 — additivity discipline** for multi-round reviews.
+- **v0.2.0 — programmatic citation verification gate.**
+
+No breaking changes to existing `--type plan` or `--type project`
+modes. `--type paper` did break in v0.6.0 (per-draft layout required;
+flat-file rejected with migration message).
 
 ## Install
 
@@ -99,7 +117,8 @@ runs the presentation reviewer.
   expands literature scan, multi-source verification, and sensitivity
   analyses — for pre-publication review.
 - `--model <model_id>` — override the default model
-  (`claude-sonnet-4-20250514` for claude; `gpt-5.4` for codex).
+  (`claude-sonnet-4-6` for claude — bumped from sonnet-4 in v0.5.1;
+  `gpt-5.4` for codex).
 - `--no-stream` — opt out of the stream-json parser (disables
   programmatic Write verification, automatic retry on silent-failure,
   cost summary, and stream log). Default: parser is on.
