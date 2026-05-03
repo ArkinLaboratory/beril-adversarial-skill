@@ -2,12 +2,37 @@
 
 ---
 
-## v0.6.3 — 2026-05-03 (docs-only — cross-team interop guidance)
+## v0.6.4 — 2026-05-03 (docs-only — presentation path fix bundled hotfix)
 
-CONTRACT.md additions per paper-writer team feedback (severity
-mapping, iteration patterns) AND per presentation-maker team
-feedback (path-listing accuracy fix). No code changes; no schema
-changes; no behavior changes.
+Single CONTRACT.md fix arriving immediately after v0.6.3. The
+presentation-maker team's feedback (stale paths) arrived after the
+v0.6.3 commit + tag had already been pushed; rather than rewrite
+the v0.6.3 tag, this micro-release ships the fix as v0.6.4.
+
+### Fixed
+
+- **CONTRACT.md presentation paths** — three required-input paths
+  in §"Presentation review interop" were stale. The orchestrator
+  correctly reads `narrative/00_throughline.md`,
+  `narrative/02_substories.md`, and
+  `working/03_slides/qa_anticipated.json` from v0.3.1+ four-zone
+  drafts (per the layout-detection block added in v0.5.2). Doc was
+  showing only `slide_spec.json` at the v0.3.1+ location and the
+  other three at top-level legacy paths. Fixed: now shows the
+  correct v0.3.1+ paths AND the legacy v0.3.0 layout, with a clear
+  note that consumers don't need to know which layout their draft
+  uses (orchestrator auto-detects).
+
+No code changes. No schema changes. No behavior changes. v0.6.3
+wheels remain functional; this release just brings the doc into
+alignment with the code that was already shipped.
+
+---
+
+## v0.6.3 — 2026-05-03 (docs-only — paper-writer team interop guidance)
+
+CONTRACT.md additions per paper-writer team integration feedback.
+No code changes; no schema changes; no behavior changes.
 
 ### Added
 
@@ -30,20 +55,6 @@ changes; no behavior changes.
   and trivial in consumer code) and why we did NOT change the default
   output behavior (presentation-maker's `revise_loop.py` parses by
   canonical name; would break consumers).
-
-### Fixed
-
-- **CONTRACT.md presentation paths** — three required-input paths
-  in §"Presentation review interop" were stale. The orchestrator
-  correctly reads `narrative/00_throughline.md`,
-  `narrative/02_substories.md`, and
-  `working/03_slides/qa_anticipated.json` from v0.3.1+ four-zone
-  drafts (per the layout-detection block added in v0.5.2). Doc was
-  showing only `slide_spec.json` at the v0.3.1+ location and the
-  other three at top-level legacy paths. Fixed: now shows the
-  correct v0.3.1+ paths AND the legacy v0.3.0 layout, with a clear
-  note that consumers don't need to know which layout their draft
-  uses (orchestrator auto-detects).
 
 ### Deferred to v0.7+
 
