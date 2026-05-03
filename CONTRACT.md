@@ -253,28 +253,28 @@ If your consumer runs the reviewer multiple times per draft (e.g.,
 inside a review-rewrite loop that wants to measure delta), use
 ONE of these two patterns:
 
-### Pattern A — `--output` flag for per-run paths
+### Pattern A — `--output` flag (v0.6.x: legacy modes only)
 
-The shell script's `--output` flag accepts a custom output
-basename. Direct each run to a numbered file:
+The shell script's `--output` flag accepts a custom output basename.
+**In v0.6.x, this flag is honored ONLY for `--type project|plan`
+(legacy markdown reviewers).** For `--type paper|presentation`, the
+flag is silently ignored — output always lands at the canonical
+`<draft_dir>/audit/adversarial_review.{md,json}` paths.
+
+For legacy modes (where `--output` works):
 
 ```bash
-for round in 1 2 3; do
-  beril-adversarial review "$draft_dir" \
-      --type paper \
-      --output "$draft_dir/audit/adversarial_review_round_${round}.md"
-  # JSON path is derived from --output by replacing .md → .json:
-  # adversarial_review_round_1.json, _2.json, _3.json
-done
+beril-adversarial review my_project \
+    --type project \
+    --output projects/my_project/ADVERSARIAL_REVIEW_round_1.md
 ```
 
-Note: `--output` is currently honored for `--type project|plan`
-(which already auto-numbers their markdown outputs). For `--type
-paper|presentation`, the v0.6.x default is canonical-name overwrite.
-Auto-numbering for paper/presentation modes is being considered for
-v0.7+; in v0.6.x, use Pattern B if you can't pass `--output`.
+For `--type paper|presentation` in v0.6.x: **`--output` does
+nothing.** Use Pattern B below. (Honoring `--output` for v2 schema
+modes is on the v0.7+ punch list alongside the planned
+`--auto-number` flag — see below.)
 
-### Pattern B — Rename audit/ between runs
+### Pattern B — Rename audit/ between runs (works universally)
 
 Move the previous audit aside before re-running:
 
@@ -288,12 +288,12 @@ done
 # After loop: audit-round-1/, audit-round-2/, audit/ (final round)
 ```
 
-**Pattern B is preferred** for downstream consumers because:
-- It works identically for paper, presentation, and any future v2
-  schema modes.
-- The full `audit/` directory is preserved per round (including the
-  auto-correction sidecar `*.original-summary.json` if it fired).
-- Recovery from a bad round is `mv audit-round-N audit` — one step.
+**Pattern B is the only working approach for `--type paper` and
+`--type presentation` in v0.6.x.** It works identically across all
+review types (legacy + v2 schemas). The full `audit/` directory is
+preserved per round (including the auto-correction sidecar
+`*.original-summary.json` if it fired). Recovery from a bad round
+is `mv audit-round-N audit` — one step.
 
 ### Future: `--auto-number` flag (v0.7+)
 

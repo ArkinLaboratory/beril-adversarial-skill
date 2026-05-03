@@ -2,6 +2,43 @@
 
 ---
 
+## v0.6.5 — 2026-05-03 (docs-only — CONTRACT.md `--output` honesty fix)
+
+Single CONTRACT.md fix surfaced by paper-writer team's draft_9 live
+run. Pattern A example showed `--output` being passed to `--type
+paper` but the orchestrator silently ignores `--output` for paper
+and presentation v2 modes — output always lands at the canonical
+`audit/adversarial_review.{md,json}` paths regardless. The example
+was dishonest about what actually happens.
+
+### Fixed
+
+- **CONTRACT.md Pattern A** — rewrote to honestly state v0.6.x
+  behavior: `--output` is honored only for `--type project|plan`
+  (legacy markdown reviewers); for `--type paper|presentation`,
+  `--output` is silently ignored and Pattern B (rename `audit/`
+  between runs) is the only working approach. The example code
+  no longer shows `--output` being passed to `--type paper`. The
+  v0.7+ punch list captures honoring `--output` for v2 schema modes
+  alongside the planned `--auto-number` flag.
+
+No code changes. No schema changes. No behavior changes. Pure
+docs-honesty correction. v0.6.4 wheels remain functional.
+
+### Operator impact
+
+```bash
+pipx install --force <v0.6.5 wheel>
+beril-adversarial install-skill <BERIL_ROOT>
+```
+
+CONTRACT.md is the only material update. v0.6.5 install produces
+files byte-identical to v0.6.4 at the deployed-skill level (only
+the source repo's CONTRACT.md changed; CONTRACT.md doesn't ship in
+the deployed skill tree).
+
+---
+
 ## v0.6.4 — 2026-05-03 (docs-only — presentation path fix bundled hotfix)
 
 Single CONTRACT.md fix arriving immediately after v0.6.3. The
