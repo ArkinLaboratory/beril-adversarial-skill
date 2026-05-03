@@ -132,20 +132,37 @@ auto-correction, but the array is canonical).
 
 ### Required inputs
 
-Presentation-maker per-draft directory (v0.3.1+ zone layout):
+Presentation-maker per-draft directory (v0.3.1+ four-zone layout
+— `deliverable/`, `narrative/`, `working/`, `audit/`):
 
 ```
 projects/<project_id>/talks/draft_N/
-├── working/slide_spec.json     ← REQUIRED (v0.3.1+; legacy v0.3.0 = top-level)
-├── 00_throughline.md           ← REQUIRED
-├── 02_substories.md            ← REQUIRED
-├── 03_slides/qa_anticipated.json ← REQUIRED
-└── audit/                      ← created by the reviewer
+├── working/slide_spec.json              ← REQUIRED
+├── working/03_slides/qa_anticipated.json ← REQUIRED
+├── narrative/00_throughline.md          ← REQUIRED
+├── narrative/02_substories.md           ← REQUIRED
+├── working/04_speaker_notes/            ← optional (read if present)
+└── audit/                               ← created by the reviewer
 ```
 
-The orchestrator detects layout version (v0.3.1+ vs legacy v0.3.0)
-and reads from the right zone — added in v0.5.2 to handle
-presentation-maker's zone reorganization.
+The orchestrator's input-resolution block (`adversarial_review.sh`,
+added v0.5.2) auto-detects layout. v0.3.0 and earlier drafts use
+the legacy top-level layout instead:
+
+```
+projects/<project_id>/talks/draft_N/
+├── slide_spec.json
+├── 00_throughline.md
+├── 02_substories.md
+├── 03_slides/qa_anticipated.json
+└── audit/
+```
+
+The script probes for `working/slide_spec.json` first; if absent,
+falls back to top-level paths. **Consumers don't need to know which
+layout their draft uses** — the orchestrator handles both
+transparently. The four-file requirement is the same in both
+layouts; only the paths differ.
 
 ### Output contract
 
