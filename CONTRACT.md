@@ -1,7 +1,77 @@
 # Cross-skill interop contract
 
-**Status:** Authored alongside v0.6.0 (2026-05-02). Version-pinned
+**Status:** Authored alongside v0.6.0 (2026-05-02). Updated for v0.7.0 (2026-05-03). Version-pinned
 contract for downstream consumers of beril-adversarial.
+
+---
+
+## v0.7.0 migration (READ THIS FIRST if you're a consumer)
+
+v0.7.0 ships three breaking changes bundled into one schema bump
+(`adversarial-review-{paper,presentation}.v3`):
+
+**1. Class rename — `narrative_weakness` → `central_objection`.**
+Same role (one finding per review, severity=info, deck/paper-wide
+synthesis — the killshot a peer reviewer would land). Renamed because
+"narrative_weakness" was being misread as a quality judgment rather
+than the function ("identify the central thing the work needs to
+defend against"). Consumer code matching `class == "narrative_weakness"`
+must switch to `class == "central_objection"`. v3 docs containing
+the dead class name are HARD-REJECTED by the validator (not auto-
+corrected) with a migration error message.
+
+**2. New class on presentation — `citation_reality`.** Already in
+paper since v2; presentation v3 adopts it for parity. Detects
+fabricated/drifting citations on slides with citation surfaces
+(footers, in-text markers, `provenance_pin` blocks). Consumers
+parsing presentation v3 JSON should route `citation_reality` findings
+appropriately. NEW required field: `citation_id` (string identifier
+of the cited source — bibtex key, DOI, REPORT.md section reference).
+
+**3. CLI `--output` flag now HONORED for `--type paper|presentation`.**
+In v0.6.x, `--output` was silently ignored for these modes. In
+v0.7.0 it works: `--output myreview` writes to
+`<draft_dir>/audit/myreview.{md,json}` instead of the canonical
+`audit/adversarial_review.{md,json}`. **Consumer-visible behavior
+change:** if your orchestrator was passing `--output` thinking it was
+a no-op, audit your assumptions — output paths will now differ. v2
+callers that don't pass `--output` see no difference.
+
+**Asymmetric class renumbering** (documentation-internal, not
+schema-affecting): paper.v3 keeps the same class numbers as paper.v2
+(rename is in-place; central_objection remains Class 10).
+Presentation.v3 inserts citation_reality as Class 6, bumping
+missing_slide 6→7 and central_objection 7→8. The `class` field is
+the canonical identifier; numbers only matter when reading the
+prompts.
+
+**`citation_id` semantic note.** On presentation v3, `citation_id`
+may hold REPORT.md section references (e.g., `"REPORT§Finding 7"`),
+DOIs, or bibtex keys — any string identifier of the cited source.
+Consumers should not assume bibtex format.
+
+**v2 deprecation policy.** v2 acceptance remains until both consumer
+teams (paper-writer, presentation-maker) confirm v3 adoption in
+production. Removal is event-driven, not calendar-driven. v2 docs
+emit a deprecation warning (exit 2) but parse cleanly.
+
+**Forensic compatibility.** v0.6.x audit files containing
+`narrative_weakness` (v2 schema) remain readable by the v0.7.0
+validator. The rename applies only to v3 schema. Re-processing old
+audit files does NOT require updating them.
+
+### Quick consumer migration checklist
+
+For both paper-writer and presentation-maker:
+
+1. Update class enum dispatch: `narrative_weakness` → `central_objection`. Optionally accept BOTH for one transition release.
+2. If your orchestrator passes `--output`, audit assumptions — output paths now differ.
+3. Update any test fixtures emitting v2 docs to emit v3.
+4. **Add a consumer-side smoke test** (cross-skill drift mitigation per `feedback_cross_skill_contract_drift.md`): assert your orchestrator's invocation of beril-adversarial exits 0, output file exists, JSON parses, `schema_version` matches expected.
+
+For presentation-maker only:
+
+5. Add `citation_reality` finding routing — the new class fires on slides with present-but-questionable citation surfaces (footer, in-text marker, or `provenance_pin`). Recommend surfacing to user for review (citations need human verification, not auto-revision).
 
 This doc pins the interop surface that other skills (beril-paper-writer,
 beril-presentation-maker) depend on. Changes to this contract are
@@ -190,13 +260,19 @@ compatibility with audit files from v0.4.x runs.
 
 | Schema | Status | Validator behavior |
 |---|---|---|
-| `adversarial-review-presentation.v1` | Deprecated | Accepted; deprecation warning; exit 2 |
-| `adversarial-review-presentation.v2` | Current | Accepted; full validation |
-| `adversarial-review-paper.v2` | Current (new in v0.6.0) | Accepted; full validation |
+| `adversarial-review-presentation.v1` | Deprecated since v0.5.0 | Accepted; deprecation warning; exit 2 |
+| `adversarial-review-presentation.v2` | Deprecated as of v0.7.0 | Accepted; deprecation warning; exit 2 |
+| `adversarial-review-presentation.v3` | **Current (v0.7.0+)** | Accepted; full validation; D1/D2 enforcement |
+| `adversarial-review-paper.v2` | Deprecated as of v0.7.0 | Accepted; deprecation warning; exit 2 |
+| `adversarial-review-paper.v3` | **Current (v0.7.0+)** | Accepted; full validation; D1/D2 enforcement |
 
-Future schema bumps will follow a deprecation cycle (new schema
-accepted in parallel with prior for one release). Paper v1 is
-explicitly NOT a thing — paper schema launched directly at v2.
+**v3 enforcement (D1, D2 from SCHEMA_V3_DECISIONS.md):**
+- D1: v3 docs containing the dead class name `narrative_weakness` are HARD-REJECTED (not auto-corrected). Use `central_objection` instead.
+- D2: v3 docs with `citation_reality` findings MUST include a non-empty `citation_id` field. The validator rejects without it.
+
+**v2 deprecation policy:** event-driven, not calendar-driven. v2 acceptance remains until both consumer teams confirm v3 adoption in production. Then removal lands in the next release. No fixed deadline.
+
+Paper v1 is explicitly NOT a thing — paper schema launched directly at v2.
 
 ---
 
@@ -218,13 +294,13 @@ mapping:
 | `P0` | `Critical` | Blocks ship — fabricated number, broken figure link, silent REPORT drift, abstract overclaim, citation fabrication. Triggers consumer's revise loop. |
 | `P1` | `Important` | Visible quality regression — register drift, citation drift, missing-section, structural arc issues. Surfaces in next_actions. |
 | `P2` | `Suggested` | Polish — wording preferences, citation drift on non-load-bearing claims, vague evidence pointers. |
-| `info` | _no legacy equivalent_ | Reserved for the single Class 7 / Class 10 `narrative_weakness` finding — the deck/paper's biggest weakness as a strategic note for the speaker / author. Not a fix-ticket. |
+| `info` | _no legacy equivalent_ | Reserved for the single deck/paper-wide synthesis finding (`central_objection` in v3; `narrative_weakness` in v1/v2) — the killshot a peer reviewer would land, as a strategic note for the speaker / author. Not a fix-ticket. |
 
 Example consumer-side translation in Python:
 
 ```python
 SEVERITY_TO_LEGACY = {"P0": "critical", "P1": "important",
-                     "P2": "suggested", "info": "narrative_weakness"}
+                     "P2": "suggested", "info": "central_objection"}
 
 review = json.load(open("audit/adversarial_review.json"))
 counts = {"critical": 0, "important": 0, "suggested": 0,

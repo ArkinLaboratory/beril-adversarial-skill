@@ -128,7 +128,7 @@ declare "the paper is mostly fine" — that is a failure of nerve.
 
 The class enum mirrors the presentation reviewer's where semantics
 align (claim_evidence, unbacked_quantitative, register_drift,
-narrative_weakness, throughline). Format-specific classes
+central_objection, throughline). Format-specific classes
 (missing_section, section_arc) parallel presentation's missing_slide
 and substory_arc. Paper-specific classes (citation_reality,
 report_drift, abstract_body_mismatch) cover failure modes that don't
@@ -362,6 +362,29 @@ load-bearing detection class for paper review.
 bibliography or citation_map), `discussion.v1.md` (rewrite claim to
 match what cited work actually shows).
 
+**Emission gate:** This class flags questionable citations
+(fabricated, misattributed, drifted). Silent absence of a citation
+on a claim that should be cited is NOT a `citation_reality`
+finding under this class — flag the unsupported claim as
+`claim_evidence` or `unbacked_quantitative` instead. This avoids
+double-flagging every unbacked claim. NOTE: "fabrication" satisfies
+the present-but-questionable gate — an in-text citation marker
+(e.g., `[Smith2020]`) that has no corresponding bibliography entry
+IS a present citation (the marker exists in the paper text); it is
+questionable because the bibliography doesn't back it up. Flag as
+P0 fabrication per the severity rules above.
+
+**Carve-out for fabrication and `report_evidence`:** When the
+finding is a fabricated citation (no bibliography entry exists),
+there may be no REPORT or bibliography quote to attach to
+`report_evidence`. In that case `report_evidence` is OPTIONAL —
+the `citation_id` field + `issue` prose carry the load. The general
+rule "report_evidence required for P0/P1 in citation-class
+findings" applies to citation drift (cited paper exists but doesn't
+support the claim — quote the cited paper's actual content) and
+report-pin drift (cited REPORT section doesn't contain the claim —
+quote the section). Pure fabrication has no quote source.
+
 ### Class 6: REPORT drift
 
 **The question:** Does the paper silently change a REPORT finding,
@@ -539,11 +562,20 @@ arc? Across sections, does the manuscript hold the hourglass shape?
 **fix_target options:** Section-specific (`methods.v1.md`,
 `results.v1.md`, etc.), `manuscript.v1.md` (cross-section ordering).
 
-### Class 10: the paper's biggest narrative weakness
+### Class 10: central objection (the peer-reviewer killshot)
 
 **The question:** If a hostile peer reviewer asked the SINGLE
 question that lands hardest, what would it be? Does the paper
 preempt it?
+
+**Class name note:** This class was called `narrative_weakness` in
+v2. Renamed to `central_objection` in v3 because "narrative
+weakness" was being misread as a quality judgment ("the deck has a
+weak narrative") rather than the actual function: identify the
+central thing the work needs to defend against. The function is
+unchanged from v2 — exactly one finding per review, severity=info,
+manuscript-wide synthesis. v2 audit JSONs containing
+`narrative_weakness` continue to be readable by the validator.
 
 **Detection criteria:**
 
@@ -597,7 +629,7 @@ date: {YYYY-MM-DD}
 draft_dir: {absolute path}
 project_id: {project_id}
 draft_number: {N}
-prompt_version: adversarial_paper.v2
+prompt_version: adversarial_paper.v3
 tier: {STRONG|THIN|EXPLORATORY}
 total_findings: {N}
 severity_counts:
@@ -614,12 +646,12 @@ class_counts:
   abstract_body_mismatch: {N}
   missing_section: {N}
   section_arc: {N}
-  narrative_weakness: 1
+  central_objection: 1
 ---
 
 # Adversarial Review — {project_id} draft_{N}
 
-**Reviewer:** beril-adversarial --type paper v2 ({model-id})
+**Reviewer:** beril-adversarial --type paper v3 ({model-id})
 **Reviewed at:** {ISO-8601 timestamp}
 **Total findings:** {N} ({P0_count} P0, {P1_count} P1, {P2_count} P2)
 
@@ -648,7 +680,7 @@ paper language AND the REPORT language for the same finding.}
 ## H. Section arc / hourglass coherence
 {Findings of class section_arc.}
 
-## I. The paper's biggest narrative weakness
+## I. Central objection (peer-reviewer killshot)
 {ONE paragraph. The single objection the author most needs to
 preempt. Whether the paper preempts it. Suggested structural fix.}
 
@@ -681,17 +713,17 @@ section is a contract violation.
 
 ### File 2: `<draft_dir>/audit/adversarial_review.json`
 
-Schema (this is the consumer contract — `adversarial-review-paper.v2`):
+Schema (this is the consumer contract — `adversarial-review-paper.v3`):
 
 ```json
 {
-  "schema_version": "adversarial-review-paper.v2",
+  "schema_version": "adversarial-review-paper.v3",
   "draft_dir": "/abs/path/to/papers/draft_N",
   "project_id": "string",
   "draft_number": 3,
   "reviewed_at": "2026-05-02T13:42:00Z",
   "reviewer_model": "claude-sonnet-4-6",
-  "prompt_version": "adversarial_paper.v2",
+  "prompt_version": "adversarial_paper.v3",
   "tier": "STRONG",
   "summary": {
     "total_findings": 14,
@@ -703,7 +735,7 @@ Schema (this is the consumer contract — `adversarial-review-paper.v2`):
       "report_drift": 1,
       "abstract_body_mismatch": 1,
       "missing_section": 2,
-      "narrative_weakness": 1
+      "central_objection": 1
     }
   },
   "findings": [
@@ -725,7 +757,7 @@ Schema (this is the consumer contract — `adversarial-review-paper.v2`):
     },
     {
       "id": "F005",
-      "class": "narrative_weakness",
+      "class": "central_objection",
       "severity": "info",
       "confidence": "high",
       "issue": "The paper's central weakness is the gap between 'we identified 100 high-priority candidates' and 'we validated this prioritization actually surfaces real biology.' The 82% high-confidence figure is a self-graded score; the only external validation is lab-field concordance at marginal binomial significance. A peer reviewer asks: 'How do you know your prioritization isn't sophisticated post-hoc rationalization?' The paper does not preempt this — Discussion frames the experimental roadmap as proposed work, not validation results.",
@@ -736,7 +768,7 @@ Schema (this is the consumer contract — `adversarial-review-paper.v2`):
 }
 ```
 
-**Schema v2 single-array structure (mirror of presentation v2):**
+**Schema v3 single-array structure (mirror of presentation v3):**
 
 There is ONE `findings[]` array. ALL findings live in it. There is
 NO `deck_level_findings[]` field — emitting one will fail validation.
@@ -746,20 +778,20 @@ NO `deck_level_findings[]` field — emitting one will fail validation.
 - **Manuscript-wide findings** OMIT `section` (and the other
   section-level fields). The reviewer signals "this finding has no
   single section locus" by leaving `section` out.
-  - `narrative_weakness` is ALWAYS manuscript-wide (no section).
+  - `central_objection` is ALWAYS manuscript-wide (no section).
   - `missing_section` is ALWAYS manuscript-wide (about a section
     that isn't there).
   - Cross-section findings (abstract_body_mismatch when the issue
     spans abstract + multiple body sections) are manuscript-wide.
 
-**Field rules (v2):**
+**Field rules (v3):**
 
 - `severity` ∈ `{"P0", "P1", "P2", "info"}` — `info` only for the
-  single Class 10 narrative_weakness finding.
+  single Class 10 central_objection finding.
 - `class` ∈ `{"throughline", "claim_evidence", "unbacked_quantitative",
   "register_drift", "citation_reality", "report_drift",
   "abstract_body_mismatch", "missing_section", "section_arc",
-  "narrative_weakness"}`.
+  "central_objection"}`.
 - `confidence` ∈ `{"high", "medium", "low"}`.
 - `id` — sequential `F001`, `F002`, ... across the SINGLE findings
   array. NO `DL###` namespace.
@@ -776,7 +808,7 @@ NO `deck_level_findings[]` field — emitting one will fail validation.
   if you can verify the cited paper's content (from references.md
   or via WebSearch if granted), include it.
 
-**Required vs optional per-finding fields (v2):**
+**Required vs optional per-finding fields (v3):**
 
 | Field | Required? | Notes |
 |---|---|---|
@@ -789,13 +821,13 @@ NO `deck_level_findings[]` field — emitting one will fail validation.
 | `fix_hint` | required | concrete fix |
 | `section` | optional | absence ⇒ manuscript-wide finding |
 | `line_range` | optional | required IFF section present (best-effort) |
-| `paragraph_quote` | optional | required IFF section present, EXCEPT for narrative_weakness/missing_section/throughline/section_arc/abstract_body_mismatch where it's optional |
+| `paragraph_quote` | optional | required IFF section present, EXCEPT for central_objection/missing_section/throughline/section_arc/abstract_body_mismatch/citation_reality where it's optional (those are structural, not text-specific) |
 | `citation_id` | optional | for citation_reality findings |
 | `report_evidence` | required for P0/P1 in claim_evidence + register_drift + unbacked_quantitative + report_drift | otherwise optional |
 
 Note on `paragraph_quote`: class-conditional. Required for
 `register_drift`, `claim_evidence`, `unbacked_quantitative`,
-`report_drift`. Optional for `narrative_weakness`, `missing_section`,
+`report_drift`. Optional for `central_objection`, `missing_section`,
 `throughline`, `section_arc`, `abstract_body_mismatch`,
 `citation_reality` — those are structural, not text-specific.
 
@@ -885,7 +917,7 @@ in paper review:
 - `fix_hint` proposing rewrites that include quoted phrases
 
 If you cannot produce valid JSON for any reason, write a JSON file
-with `{"schema_version": "adversarial-review-paper.v2",
+with `{"schema_version": "adversarial-review-paper.v3",
 "error": "<reason>"}` and exit. Do not produce malformed JSON.
 
 ---
@@ -1122,9 +1154,9 @@ number; author may or may not have justification.
 
 ---
 
-## Worked example: narrative weakness (Class 10) — the killshot
+## Worked example: central objection (Class 10) — the peer-reviewer killshot
 
-This is the SINGLE finding of class narrative_weakness. Every paper
+This is the SINGLE finding of class central_objection. Every paper
 review must produce exactly one. Severity is `info`, not P0/P1/P2.
 
 **Template (do not copy verbatim — synthesize from this paper's
@@ -1175,7 +1207,7 @@ synthesis across the whole paper):**
 ```json
 {
   "id": "F018",
-  "class": "narrative_weakness",
+  "class": "central_objection",
   "severity": "info",
   "confidence": "high",
   "issue": "[paragraph above, verbatim or refined]",
@@ -1222,7 +1254,7 @@ After all claims are walked, run the manuscript-wide passes:
     the body sections.
 12. **REPORT drift (Class 6).** Walk reframing_log.md vs claims that
     differ from REPORT.
-13. **Narrative weakness (Class 10).** Synthesize the single
+13. **Central objection (Class 10).** Synthesize the single
     sharpest objection across all the above.
 
 Then emit both files via Write.
@@ -1303,7 +1335,7 @@ The order of operations:
 
 3. **Walk the manuscript-wide passes.** Throughline integrity,
    section arc, missing sections, abstract-body mismatch, REPORT
-   drift, narrative weakness.
+   drift, central objection.
 
 4. **Emit the .json file via Write.** Use the absolute path the
    user prompt provides for `audit/adversarial_review.json`. Verify
@@ -1329,7 +1361,11 @@ The order of operations:
 | **P0** | Paper makes a false / unbacked / over-confident claim a peer reviewer would catch. Citation fabrication. Silent REPORT drift. Abstract overclaim. Inferential leap. | Trigger revise loop: re-run targeted prompt for the section(s); bounded retry. |
 | **P1** | Visible quality regression. The paper is presentable but a careful reviewer finds the issue. Includes most register_drift, citation drift, missing-section findings. | Surface in `next_actions.md`; user decides whether to revise. |
 | **P2** | Polish. Wording preferences, citation drift on non-load-bearing claims, vague evidence pointers. | Surface in `next_actions.md`; deferred. |
-| **info** | The single Class 10 narrative_weakness finding. Not a fix-ticket; a strategic note for the author. | Surface in `next_actions.md`; author addresses in next major revision. |
+| **info** | The single Class 10 central_objection finding. Not a fix-ticket; a strategic note for the author. | Surface in `next_actions.md`; author addresses in next major revision. |
+
+**v2 → v3 class rename:** What v2 called `narrative_weakness` is
+now `central_objection` (same function, clearer label). Validator
+accepts both schema versions during the deprecation window.
 
 Default consumer policy: P0 → revise; P1 + P2 + info → next_actions
 only.
@@ -1351,7 +1387,7 @@ invoking Write, run this self-check:
    report_drift finding?** If no, my finding is unverifiable — fix
    or drop.
 
-3. **Did I produce a Class 10 narrative_weakness finding?** If no,
+3. **Did I produce a Class 10 central_objection finding?** If no,
    I missed the killshot — synthesize one before emitting. The
    killshot must name a SPECIFIC objection (not "the discussion
    could be strengthened") with the peer reviewer's plausible
@@ -1368,10 +1404,13 @@ invoking Write, run this self-check:
    - **register_drift:** did I find the source REPORT paragraph
      for each claim and compare verbs/modifiers?
    - **citation_reality:** did I walk references.md +
-     citation_map.md and verify every citation exists AND supports
-     the specific claim it's pinned to? If I emitted "no citation
-     issues found," that's a SIGN OF FAILURE for citation-dense
-     papers — re-do.
+     citation_map.md and verify (a) every in-text citation marker
+     has a corresponding bibliography entry (fabrication check)
+     AND (b) the cited paper actually supports the SPECIFIC claim
+     it's pinned to (drift check; verify via DOI/PMID metadata or
+     WebSearch if granted)? If I emitted "no citation issues
+     found," that's a SIGN OF FAILURE for citation-dense papers —
+     re-do.
    - **report_drift:** did I walk every paper claim that differs
      from REPORT and check reframing_log.md for the acknowledgment?
    - **abstract_body_mismatch:** did I check every abstract claim
@@ -1406,7 +1445,7 @@ invoking Write, run this self-check:
 9. **Did I assign every finding a unique id?** Sequential F001,
    F002, ... across the entire `findings[]` array. NO `DL###` ids
    — that was schema v1 of the presentation reviewer; this is paper
-   v2 with a single namespace.
+   v3 with a single namespace.
 
 10. **Have I invoked Write twice?** If I cannot point at two Write
     calls in this turn, I have not delivered the review. Invoke

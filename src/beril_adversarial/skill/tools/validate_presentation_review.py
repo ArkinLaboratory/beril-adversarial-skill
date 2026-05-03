@@ -55,53 +55,79 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-# Supported schema versions. As of v0.6.0, this validator handles
-# BOTH the presentation review schemas (v1 deprecated, v2 current)
-# AND the paper review schema (v2 — paper has no v1 schema; the
-# v1 paper reviewer in v0.5.x emitted markdown only).
+# Supported schema versions. As of v0.7.0, this validator handles:
+#   - presentation v1 (deprecated since v0.5.0; forensic-only)
+#   - presentation v2 (deprecated as of v0.7.0; forensic-only)
+#   - presentation v3 (current; renamed narrative_weakness ->
+#     central_objection + added citation_reality class)
+#   - paper v2 (deprecated as of v0.7.0; forensic-only)
+#   - paper v3 (current; renamed narrative_weakness -> central_objection)
 #
-# Forensic compatibility: presentation v1 audit files from v0.4.x
-# runs (draft_9, draft_10) remain readable. Paper v1 audits don't
-# exist (no JSON schema then), so no paper v1 acceptance needed.
+# Forensic compatibility: older audit files remain readable. v2
+# acceptance will be removed in the next release after both consumers
+# (paper-writer, presentation-maker) confirm v3 adoption.
 SCHEMA_VERSION_PRESENTATION_V1 = "adversarial-review-presentation.v1"
 SCHEMA_VERSION_PRESENTATION_V2 = "adversarial-review-presentation.v2"
+SCHEMA_VERSION_PRESENTATION_V3 = "adversarial-review-presentation.v3"
 SCHEMA_VERSION_PAPER_V2 = "adversarial-review-paper.v2"
+SCHEMA_VERSION_PAPER_V3 = "adversarial-review-paper.v3"
 
 ACCEPTED_SCHEMA_VERSIONS = {
     SCHEMA_VERSION_PRESENTATION_V1,
     SCHEMA_VERSION_PRESENTATION_V2,
+    SCHEMA_VERSION_PRESENTATION_V3,
     SCHEMA_VERSION_PAPER_V2,
+    SCHEMA_VERSION_PAPER_V3,
 }
 
-# v1 schemas that are still accepted but deprecated.
+# Schema versions that are still accepted but deprecated. Each gets a
+# version-specific deprecation warning on stderr.
 DEPRECATED_SCHEMA_VERSIONS = {
     SCHEMA_VERSION_PRESENTATION_V1,
+    SCHEMA_VERSION_PRESENTATION_V2,
+    SCHEMA_VERSION_PAPER_V2,
 }
 
 # Schema family detection — for routing per-schema validation rules.
 PRESENTATION_SCHEMAS = {
     SCHEMA_VERSION_PRESENTATION_V1,
     SCHEMA_VERSION_PRESENTATION_V2,
+    SCHEMA_VERSION_PRESENTATION_V3,
 }
-PAPER_SCHEMAS = {SCHEMA_VERSION_PAPER_V2}
+PAPER_SCHEMAS = {
+    SCHEMA_VERSION_PAPER_V2,
+    SCHEMA_VERSION_PAPER_V3,
+}
+
+# Schema generation — v3 has different valid class sets (rename +
+# new class) than v1/v2.
+V3_SCHEMAS = {
+    SCHEMA_VERSION_PRESENTATION_V3,
+    SCHEMA_VERSION_PAPER_V3,
+}
+V2_SCHEMAS = {
+    SCHEMA_VERSION_PRESENTATION_V2,
+    SCHEMA_VERSION_PAPER_V2,
+}
 
 # Backwards-compat aliases for code that imported the old constants.
 SCHEMA_VERSION_V1 = SCHEMA_VERSION_PRESENTATION_V1
 SCHEMA_VERSION_V2 = SCHEMA_VERSION_PRESENTATION_V2
-CURRENT_SCHEMA_VERSION = SCHEMA_VERSION_PRESENTATION_V2  # legacy alias
+CURRENT_SCHEMA_VERSION = SCHEMA_VERSION_PRESENTATION_V3  # current as of v0.7.0
 SCHEMA_VERSION_LITERAL = SCHEMA_VERSION_PRESENTATION_V1  # legacy alias
 
 # Severity values that can appear in findings (info is reserved for
-# the single Class 7 narrative_weakness finding).
+# the single deck/manuscript-wide synthesis finding — narrative_weakness
+# in v1/v2; central_objection in v3).
 VALID_SEVERITIES = {"P0", "P1", "P2", "info"}
 
-# Class values per schema family. Strong intersection between
-# presentation and paper (5 shared classes), with format-specific
-# additions. See SCHEMA_V2_PAPER_DECISIONS.md §"Class enum vs
-# presentation v2 — overlap report".
+# Class values per schema family AND generation. v3 renames
+# narrative_weakness -> central_objection and promotes citation_reality
+# from paper-only to shared (presentation v3 adopts it for parity).
 
+# === v1/v2 class sets (legacy) ===
 # Shared between presentation v1/v2 and paper v2.
-SHARED_CLASSES = {
+SHARED_CLASSES_V1V2 = {
     "throughline",
     "claim_evidence",
     "register_drift",
@@ -109,15 +135,15 @@ SHARED_CLASSES = {
     "narrative_weakness",
 }
 
-# Presentation-only classes.
-PRESENTATION_ONLY_CLASSES = {
+# Presentation-only classes (v1/v2).
+PRESENTATION_ONLY_CLASSES_V1V2 = {
     "qa_softball",
     "substory_arc",
     "missing_slide",
 }
 
-# Paper-only classes.
-PAPER_ONLY_CLASSES = {
+# Paper-only classes (v2).
+PAPER_ONLY_CLASSES_V2 = {
     "section_arc",
     "missing_section",
     "citation_reality",
@@ -125,12 +151,70 @@ PAPER_ONLY_CLASSES = {
     "abstract_body_mismatch",
 }
 
-# Union — used when validating without knowing the schema family yet.
-VALID_CLASSES = SHARED_CLASSES | PRESENTATION_ONLY_CLASSES | PAPER_ONLY_CLASSES
+# === v3 class sets ===
+# Shared between presentation v3 and paper v3 — narrative_weakness
+# renamed to central_objection; citation_reality promoted from paper-
+# only to shared.
+SHARED_CLASSES_V3 = {
+    "throughline",
+    "claim_evidence",
+    "register_drift",
+    "unbacked_quantitative",
+    "central_objection",
+    "citation_reality",
+}
 
-# Per-schema valid class sets.
-VALID_CLASSES_PRESENTATION = SHARED_CLASSES | PRESENTATION_ONLY_CLASSES
-VALID_CLASSES_PAPER = SHARED_CLASSES | PAPER_ONLY_CLASSES
+# Presentation-only classes (v3) — citation_reality moved to shared.
+PRESENTATION_ONLY_CLASSES_V3 = {
+    "qa_softball",
+    "substory_arc",
+    "missing_slide",
+}
+
+# Paper-only classes (v3) — citation_reality moved to shared.
+PAPER_ONLY_CLASSES_V3 = {
+    "section_arc",
+    "missing_section",
+    "report_drift",
+    "abstract_body_mismatch",
+}
+
+# === Backwards-compat aliases (legacy constants kept for callers) ===
+# Code that imported SHARED_CLASSES, PRESENTATION_ONLY_CLASSES, etc.
+# continues to work — they refer to the v1/v2 sets.
+SHARED_CLASSES = SHARED_CLASSES_V1V2
+PRESENTATION_ONLY_CLASSES = PRESENTATION_ONLY_CLASSES_V1V2
+PAPER_ONLY_CLASSES = PAPER_ONLY_CLASSES_V2
+
+# Union of ALL classes across all schema versions — for tally counters
+# that don't care about per-version validity.
+VALID_CLASSES = (
+    SHARED_CLASSES_V1V2
+    | SHARED_CLASSES_V3
+    | PRESENTATION_ONLY_CLASSES_V1V2
+    | PRESENTATION_ONLY_CLASSES_V3
+    | PAPER_ONLY_CLASSES_V2
+    | PAPER_ONLY_CLASSES_V3
+)
+
+# Legacy per-schema valid class sets (presentation v1/v2; paper v2).
+VALID_CLASSES_PRESENTATION = SHARED_CLASSES_V1V2 | PRESENTATION_ONLY_CLASSES_V1V2
+VALID_CLASSES_PAPER = SHARED_CLASSES_V1V2 | PAPER_ONLY_CLASSES_V2
+
+# v3 per-schema valid class sets.
+VALID_CLASSES_PRESENTATION_V3 = SHARED_CLASSES_V3 | PRESENTATION_ONLY_CLASSES_V3
+VALID_CLASSES_PAPER_V3 = SHARED_CLASSES_V3 | PAPER_ONLY_CLASSES_V3
+
+
+def valid_classes_for(schema_version: str) -> set[str]:
+    """Return the per-schema valid class set for a given schema_version."""
+    if schema_version == SCHEMA_VERSION_PRESENTATION_V3:
+        return VALID_CLASSES_PRESENTATION_V3
+    if schema_version == SCHEMA_VERSION_PAPER_V3:
+        return VALID_CLASSES_PAPER_V3
+    if schema_version in PAPER_SCHEMAS:
+        return VALID_CLASSES_PAPER
+    return VALID_CLASSES_PRESENTATION
 
 VALID_CONFIDENCES = {"high", "medium", "low"}
 
@@ -315,35 +399,55 @@ def validate(
         errors.append(
             f"schema_version must be one of {accepted}, got {sv!r}"
         )
-        # Default to presentation v2 rules for the rest of validation if
-        # version is bogus.
-        sv = SCHEMA_VERSION_PRESENTATION_V2
+        # Default to presentation v3 rules for the rest of validation if
+        # version is bogus (v3 is current as of v0.7.0).
+        sv = SCHEMA_VERSION_PRESENTATION_V3
 
     # Schema family + version detection
     is_presentation_v1 = sv == SCHEMA_VERSION_PRESENTATION_V1
     is_presentation_v2 = sv == SCHEMA_VERSION_PRESENTATION_V2
+    is_presentation_v3 = sv == SCHEMA_VERSION_PRESENTATION_V3
     is_paper_v2 = sv == SCHEMA_VERSION_PAPER_V2
+    is_paper_v3 = sv == SCHEMA_VERSION_PAPER_V3
 
     is_presentation = sv in PRESENTATION_SCHEMAS
     is_paper = sv in PAPER_SCHEMAS
+    is_v3 = sv in V3_SCHEMAS
 
     # Backwards-compat: legacy code paths reference these names.
     is_v1 = is_presentation_v1
     is_v2 = is_presentation_v2 or is_paper_v2  # any v2 schema family
 
-    # Per-schema valid class set
-    valid_classes_for_schema = (
-        VALID_CLASSES_PAPER if is_paper else VALID_CLASSES_PRESENTATION
-    )
+    # Per-schema valid class set (uses helper that handles v3).
+    valid_classes_for_schema = valid_classes_for(sv)
+
+    # The v3 synthesis-class name is central_objection; v1/v2 used
+    # narrative_weakness. Used for the per-class invariants below.
+    synthesis_class = "central_objection" if is_v3 else "narrative_weakness"
 
     if sv in DEPRECATED_SCHEMA_VERSIONS:
-        warnings.append(
-            f"schema_version {sv!r} is DEPRECATED. New reviewer runs emit "
-            "the v2 family (adversarial-review-presentation.v2 or "
-            "adversarial-review-paper.v2). v1 acceptance is for forensic "
-            "compatibility with older audit files only; please re-run the "
-            "reviewer to produce a v2 audit."
-        )
+        if sv == SCHEMA_VERSION_PRESENTATION_V1:
+            warnings.append(
+                f"schema_version {sv!r} is DEPRECATED (since v0.5.0). "
+                "v1 acceptance is for forensic compatibility with v0.4.x "
+                "audit files only. New runs emit "
+                f"{SCHEMA_VERSION_PRESENTATION_V3!r} (current as of v0.7.0)."
+            )
+        elif sv in V2_SCHEMAS:
+            new_version = (
+                SCHEMA_VERSION_PAPER_V3
+                if is_paper
+                else SCHEMA_VERSION_PRESENTATION_V3
+            )
+            warnings.append(
+                f"schema_version {sv!r} is DEPRECATED (as of v0.7.0); "
+                f"current is {new_version!r}. v2 docs continue to be "
+                "readable for forensic inspection. v3 added "
+                "central_objection (renamed from narrative_weakness) and, "
+                "for presentation, citation_reality. v2 acceptance will "
+                "be removed in the next release after both consumer teams "
+                "(paper-writer, presentation-maker) confirm v3 adoption."
+            )
 
     findings = doc.get("findings")
     if not isinstance(findings, list):
@@ -445,12 +549,41 @@ def validate(
         # Field-value validity (per-schema valid classes)
         cls = f.get("class")
         if cls is not None and cls not in valid_classes_for_schema:
-            errors.append(
-                f"{tag} (id={f.get('id', '?')!r}): class={cls!r} not in "
-                f"{sorted(valid_classes_for_schema)} (schema {sv})"
-            )
+            # D1 (SCHEMA_V3_DECISIONS.md): if v3 doc emits the dead
+            # class name 'narrative_weakness', surface a clear migration
+            # message rather than a generic enum error.
+            if is_v3 and cls == "narrative_weakness":
+                errors.append(
+                    f"{tag} (id={f.get('id', '?')!r}): class="
+                    "'narrative_weakness' was renamed to 'central_objection' "
+                    "in v3. v3 schemas reject the dead class name. See "
+                    "SCHEMA_V3_DECISIONS.md for the rename rationale and "
+                    "migration guidance. v2 audit JSONs containing "
+                    "narrative_weakness remain readable (use schema_version "
+                    f"{SCHEMA_VERSION_PRESENTATION_V2!r} or "
+                    f"{SCHEMA_VERSION_PAPER_V2!r} for forensic access)."
+                )
+            else:
+                errors.append(
+                    f"{tag} (id={f.get('id', '?')!r}): class={cls!r} not in "
+                    f"{sorted(valid_classes_for_schema)} (schema {sv})"
+                )
         if cls is not None:
             class_counter[cls] += 1
+
+        # D2 (SCHEMA_V3_DECISIONS.md): citation_reality findings must
+        # include citation_id. Applies to any schema (paper v2/v3,
+        # presentation v3) where citation_reality is a valid class.
+        if cls == "citation_reality":
+            cid = f.get("citation_id")
+            if cid is None or (isinstance(cid, str) and not cid.strip()):
+                errors.append(
+                    f"{tag} (id={f.get('id', '?')!r}): citation_reality "
+                    "findings MUST include a non-empty citation_id (the "
+                    "bibtex key, DOI, REPORT.md section reference, or other "
+                    "string identifier of the cited source being flagged). "
+                    "See SCHEMA_V3_DECISIONS.md §D2."
+                )
 
         sev = f.get("severity")
         if sev is not None and sev not in VALID_SEVERITIES:
@@ -475,16 +608,17 @@ def validate(
                 errors.append(f"{tag}: duplicate finding id {fid!r}")
             seen_ids.add(fid)
 
-        # narrative_weakness must be severity=info; nothing else should be info
-        if cls == "narrative_weakness" and sev != "info":
+        # Synthesis class (narrative_weakness in v1/v2; central_objection
+        # in v3) must be severity=info; nothing else should be info.
+        if cls == synthesis_class and sev != "info":
             errors.append(
-                f"{tag} (id={fid!r}): narrative_weakness must have "
+                f"{tag} (id={fid!r}): {synthesis_class} must have "
                 f"severity='info', got {sev!r}"
             )
-        if sev == "info" and cls != "narrative_weakness":
+        if sev == "info" and cls != synthesis_class:
             errors.append(
                 f"{tag} (id={fid!r}): severity='info' is reserved for "
-                f"narrative_weakness, but class={cls!r}"
+                f"{synthesis_class}, but class={cls!r}"
             )
 
     if is_v1:
@@ -495,20 +629,22 @@ def validate(
             validate_finding(
                 f, f"deck_level_findings[{i}]", require_slide_fields=False
             )
-    elif is_presentation_v2:
-        # presentation v2: single findings[] array. slide-level fields
-        # required IFF slide_id is present.
+    elif is_presentation_v2 or is_presentation_v3:
+        # presentation v2/v3: single findings[] array. slide-level fields
+        # required IFF slide_id is present. v3 differs from v2 only in
+        # the valid class set (handled per-finding via valid_classes_for_schema).
         for i, f in enumerate(findings):
             require_locus = isinstance(f, dict) and "slide_id" in f
             validate_finding(
                 f, f"findings[{i}]", require_slide_fields=require_locus
             )
     else:
-        # paper v2: single findings[] array. section-level fields
+        # paper v2 or v3: single findings[] array. section-level fields
         # required IFF section is present. (require_slide_fields is
         # the parameter name but in paper context it means "require
         # the section-level locus fields", per validate_finding's
-        # is_paper branch.)
+        # is_paper branch.) v3 differs from v2 only in the class enum
+        # (rename narrative_weakness -> central_objection).
         for i, f in enumerate(findings):
             require_locus = isinstance(f, dict) and "section" in f
             validate_finding(
@@ -598,17 +734,28 @@ def validate(
             "did not run the detection protocol. Re-run."
         )
 
-    # narrative_weakness should appear exactly once across both arrays
-    narrative_count = class_counter.get("narrative_weakness", 0)
-    if narrative_count == 0:
+    # Synthesis-class invariant: should appear exactly once across both
+    # arrays. v1/v2 used narrative_weakness; v3 uses central_objection.
+    synthesis_count = class_counter.get(synthesis_class, 0)
+    if synthesis_count == 0:
+        # Identify which Class number corresponds to the synthesis class
+        # for error message accuracy. Paper: Class 10 in both v2 and v3.
+        # Presentation v1/v2: Class 7. Presentation v3: Class 8 (bumped
+        # because citation_reality was inserted as Class 6).
+        if is_paper:
+            cls_num = 10
+        elif is_presentation_v3:
+            cls_num = 8
+        else:
+            cls_num = 7
         warnings.append(
-            "no narrative_weakness finding emitted — Class 7 is supposed "
-            "to produce exactly one. Reviewer skipped the killshot."
+            f"no {synthesis_class} finding emitted — Class {cls_num} is "
+            "supposed to produce exactly one. Reviewer skipped the killshot."
         )
-    elif narrative_count > 1:
+    elif synthesis_count > 1:
         errors.append(
-            f"narrative_weakness should appear exactly once, got "
-            f"{narrative_count}"
+            f"{synthesis_class} should appear exactly once, got "
+            f"{synthesis_count}"
         )
 
     # Count slide-level vs deck-level by locus-field presence.

@@ -243,7 +243,17 @@ def test_orchestrator_rejects_paper_consolidate(
 
 
 def test_validator_accepts_synthetic_paper_v2_review(tmp_path: Path):
-    """A minimum-valid adversarial-review-paper.v2 JSON must pass."""
+    """A minimum-valid adversarial-review-paper.v2 JSON must still parse
+    cleanly via the validator (forensic acceptance for v0.6.x audit
+    files).
+
+    As of v0.7.0, v2 schemas are DEPRECATED — the validator emits a
+    deprecation warning and returns exit code 2 (warn-only), not 0.
+    The .json content is still consumer-readable; the warning is
+    advisory and tells consumers to migrate to v3. v2 acceptance will
+    be removed in the next release after both consumer teams confirm
+    v3 adoption.
+    """
     review_json = tmp_path / "adversarial_review.json"
     doc = {
         "schema_version": "adversarial-review-paper.v2",
@@ -293,8 +303,72 @@ def test_validator_accepts_synthetic_paper_v2_review(tmp_path: Path):
         text=True,
         timeout=10,
     )
+    # v0.7.0: v2 is deprecated → exit 2 (warn-only), not 0. The doc is
+    # still forensically readable; the deprecation warning is on stderr.
+    assert result.returncode == 2, (
+        f"validator should accept v2 with deprecation warning (exit 2), "
+        f"got exit {result.returncode}:\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert "DEPRECATED" in result.stderr
+    assert "adversarial-review-paper.v3" in result.stderr
+
+
+def test_validator_accepts_synthetic_paper_v3_review(tmp_path: Path):
+    """A minimum-valid adversarial-review-paper.v3 JSON must pass clean
+    (exit 0). v3 is the current schema as of v0.7.0; renames
+    narrative_weakness -> central_objection."""
+    review_json = tmp_path / "adversarial_review.json"
+    doc = {
+        "schema_version": "adversarial-review-paper.v3",
+        "draft_dir": str(tmp_path),
+        "project_id": "fake_project",
+        "draft_number": 1,
+        "reviewed_at": "2026-05-03T13:42:00Z",
+        "reviewer_model": "claude-sonnet-4-6",
+        "prompt_version": "adversarial_paper.v3",
+        "tier": "STRONG",
+        "summary": {
+            "total_findings": 2,
+            "by_severity": {"P1": 1, "info": 1},
+            "by_class": {"register_drift": 1, "central_objection": 1},
+        },
+        "findings": [
+            {
+                "id": "F001",
+                "class": "register_drift",
+                "severity": "P1",
+                "confidence": "high",
+                "section": "Results",
+                "line_range": "L142-148",
+                "paragraph_quote": "validates 61.7%",
+                "issue": "over-claim relative to REPORT",
+                "report_evidence": [
+                    {"section": "§Finding 7", "quote": "binomial p=0.072"}
+                ],
+                "fix_target": "results.v1.md",
+                "fix_hint": "soften 'validates' or cite Fisher",
+            },
+            {
+                "id": "F002",
+                "class": "central_objection",
+                "severity": "info",
+                "confidence": "high",
+                "issue": "central objection paragraph...",
+                "fix_target": "discussion.v1.md",
+                "fix_hint": "add Limitations paragraph conceding...",
+            },
+        ],
+    }
+    review_json.write_text(json.dumps(doc), encoding="utf-8")
+    result = subprocess.run(
+        ["python3", str(VALIDATOR), str(review_json)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
     assert result.returncode == 0, (
-        f"validator rejected valid paper.v2 doc:\n"
+        f"validator rejected valid paper.v3 doc:\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
     assert "PASS" in result.stdout

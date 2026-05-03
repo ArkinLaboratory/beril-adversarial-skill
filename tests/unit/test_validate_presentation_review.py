@@ -115,26 +115,35 @@ def _make_doc(
     """Build a minimum-valid top-level document, with summary auto-derived
     from findings if not specified explicitly.
 
-    Defaults to schema v2 (the current emit). Pass schema_version=
-    "adversarial-review-presentation.v1" to build a legacy v1 doc; in
-    that case deck_findings are placed in a separate deck_level_findings
-    field. In v2, all findings (including those passed via deck_findings)
-    are flattened into the single findings[] array.
+    Defaults to schema v2 for back-compat with the existing test suite;
+    new tests targeting v3 (current as of v0.7.0) should pass
+    schema_version="adversarial-review-presentation.v3" explicitly. v3
+    differs from v2 only in the valid class set (rename narrative_weakness
+    -> central_objection + addition of citation_reality); the single-
+    array layout is identical.
+
+    Pass schema_version="adversarial-review-presentation.v1" to build a
+    legacy v1 doc; in that case deck_findings are placed in a separate
+    deck_level_findings field. In v2/v3, all findings (including those
+    passed via deck_findings) are flattened into the single findings[]
+    array.
     """
     findings = list(findings or [])
     deck_findings = list(deck_findings or [])
+    is_v1 = schema_version == "adversarial-review-presentation.v1"
     is_v2 = schema_version == "adversarial-review-presentation.v2"
+    is_v3 = schema_version == "adversarial-review-presentation.v3"
 
-    if is_v2:
-        # v2: flatten deck_findings into findings; deck-level findings are
-        # those WITHOUT slide_id (the test caller is responsible for
+    if is_v1:
+        # v1: keep slide-level vs deck-level arrays separate.
+        all_findings = findings
+        deck_findings_for_top_level = deck_findings
+    else:
+        # v2/v3: flatten deck_findings into findings; deck-level findings
+        # are those WITHOUT slide_id (the test caller is responsible for
         # constructing them via _make_deck_finding which omits slide_id).
         all_findings = findings + deck_findings
         deck_findings_for_top_level = None  # don't emit deck_level_findings
-    else:
-        # v1: keep them separate.
-        all_findings = findings
-        deck_findings_for_top_level = deck_findings
 
     if summary is None:
         from collections import Counter
@@ -148,6 +157,13 @@ def _make_doc(
             "by_class": dict(cls),
         }
 
+    if is_v3:
+        prompt_version = "adversarial_presentation.v3"
+    elif is_v2:
+        prompt_version = "adversarial_presentation.v2"
+    else:
+        prompt_version = "adversarial_presentation.v1"
+
     doc = {
         "schema_version": schema_version,
         "draft_dir": "/tmp/fake",
@@ -155,10 +171,7 @@ def _make_doc(
         "draft_number": 1,
         "reviewed_at": "2026-04-29T13:42:00Z",
         "reviewer_model": "claude-sonnet-4-20250514",
-        "prompt_version": (
-            "adversarial_presentation.v2" if is_v2
-            else "adversarial_presentation.v1"
-        ),
+        "prompt_version": prompt_version,
         "tier": "STRONG",
         "summary": summary,
         "findings": all_findings,
@@ -757,11 +770,14 @@ def test_zero_p0_on_small_deck_no_warn():
 
 def test_cli_pass_returns_zero(tmp_path: Path):
     p = tmp_path / "review.json"
+    # v0.7.0: use v3 schema (current). v2 is deprecated and now exits 2
+    # with a deprecation warning; that's tested separately below.
     doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
         findings=[_make_finding()],
         deck_findings=[
             _make_deck_finding(
-                fid="DL001", cls="narrative_weakness", severity="info"
+                fid="DL001", cls="central_objection", severity="info"
             )
         ],
     )
@@ -841,11 +857,13 @@ def test_cli_handles_path_with_special_chars(tmp_path: Path):
     """Heredoc-quoting fix: validator must accept paths that would
     have broken the old inline shell heredoc."""
     weird = tmp_path / "review with spaces.json"
+    # v0.7.0: use v3 schema (current).
     doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
         findings=[_make_finding()],
         deck_findings=[
             _make_deck_finding(
-                fid="DL001", cls="narrative_weakness", severity="info"
+                fid="DL001", cls="central_objection", severity="info"
             )
         ],
     )
@@ -907,9 +925,19 @@ def _make_paper_manuscript_wide_finding(
     return f
 
 
-def _make_paper_doc(findings=None, summary=None):
-    """Minimum-valid paper.v2 doc (single findings[] array, no
-    deck_level_findings field)."""
+def _make_paper_doc(
+    findings=None,
+    summary=None,
+    schema_version="adversarial-review-paper.v2",
+):
+    """Minimum-valid paper.v2 / paper.v3 doc (single findings[] array,
+    no deck_level_findings field).
+
+    Defaults to v2 for back-compat with existing tests that exercise
+    v2-acceptance behavior. New tests targeting v3 (current as of
+    v0.7.0) should pass schema_version="adversarial-review-paper.v3"
+    explicitly.
+    """
     findings = list(findings or [])
     if summary is None:
         from collections import Counter
@@ -920,14 +948,20 @@ def _make_paper_doc(findings=None, summary=None):
             "by_severity": dict(sev),
             "by_class": dict(cls),
         }
+    # Derive prompt_version from schema_version (v2 -> .v2; v3 -> .v3).
+    prompt_version = (
+        "adversarial_paper.v3"
+        if schema_version == "adversarial-review-paper.v3"
+        else "adversarial_paper.v2"
+    )
     return {
-        "schema_version": "adversarial-review-paper.v2",
+        "schema_version": schema_version,
         "draft_dir": "/tmp/fake/papers/draft_1",
         "project_id": "fake_project",
         "draft_number": 1,
         "reviewed_at": "2026-05-02T13:42:00Z",
         "reviewer_model": "claude-sonnet-4-6",
-        "prompt_version": "adversarial_paper.v2",
+        "prompt_version": prompt_version,
         "tier": "STRONG",
         "summary": summary,
         "findings": findings,
@@ -1102,15 +1136,21 @@ def test_legacy_summary_stat_keys_preserved_for_backwards_compat():
 
 
 def test_cli_paper_pass_message_uses_section_level_label(tmp_path: Path):
-    """End-to-end: invoking the validator on a paper.v2 doc should print
-    'section-level' in the success message (not 'slide-level')."""
+    """End-to-end: invoking the validator on a paper.v3 doc should print
+    'section-level' in the success message (not 'slide-level').
+
+    Migrated to v3 in v0.7.0; v2 paper docs are deprecated and exit 2.
+    """
     p = tmp_path / "paper_review.json"
-    doc = _make_paper_doc(findings=[
-        _make_paper_finding(fid="F001"),
-        _make_paper_manuscript_wide_finding(
-            fid="F002", cls="narrative_weakness", severity="info"
-        ),
-    ])
+    doc = _make_paper_doc(
+        schema_version="adversarial-review-paper.v3",
+        findings=[
+            _make_paper_finding(fid="F001"),
+            _make_paper_manuscript_wide_finding(
+                fid="F002", cls="central_objection", severity="info"
+            ),
+        ],
+    )
     p.write_text(json.dumps(doc), encoding="utf-8")
     result = subprocess.run(
         [sys.executable, str(VALIDATOR_PATH), str(p)],
@@ -1170,22 +1210,27 @@ def test_lenient_json_load_raises_original_error_on_unrepairable_failure():
 def test_cli_lenient_loader_handles_trailing_comma_doc(tmp_path: Path):
     """End-to-end: a JSON file with a trailing comma should validate
     cleanly through the CLI (the lenient loader repairs it before
-    schema validation runs)."""
+    schema validation runs).
+
+    Migrated to v3 in v0.7.0; v2 docs trigger a deprecation warning
+    that exits 2 even on clean parse, so use v3 here for exit-0
+    semantics.
+    """
     p = tmp_path / "trailing_comma_review.json"
-    # Build a minimum-valid presentation v2 doc with a trailing comma
+    # Build a minimum-valid presentation v3 doc with a trailing comma
     # in the findings array
     text = '''{
-  "schema_version": "adversarial-review-presentation.v2",
+  "schema_version": "adversarial-review-presentation.v3",
   "draft_dir": "/tmp/fake",
   "project_id": "fake",
   "draft_number": 1,
   "reviewed_at": "2026-05-02T00:00:00Z",
   "reviewer_model": "claude-sonnet-4-6",
-  "prompt_version": "adversarial_presentation.v2",
+  "prompt_version": "adversarial_presentation.v3",
   "tier": "STRONG",
-  "summary": {"total_findings": 1, "by_severity": {"info": 1}, "by_class": {"narrative_weakness": 1}},
+  "summary": {"total_findings": 1, "by_severity": {"info": 1}, "by_class": {"central_objection": 1}},
   "findings": [
-    {"id": "F001", "class": "narrative_weakness", "severity": "info", "confidence": "high", "issue": "x", "fix_target": "slide_compose.v1.md", "fix_hint": "y"},
+    {"id": "F001", "class": "central_objection", "severity": "info", "confidence": "high", "issue": "x", "fix_target": "slide_compose.v1.md", "fix_hint": "y"},
   ]
 }'''
     p.write_text(text, encoding="utf-8")
@@ -1233,20 +1278,23 @@ def test_cli_unescaped_inner_quote_fails_with_helpful_hint(tmp_path: Path):
 
 
 # ============================================================================
-# v0.6.2 — prompt-side anti-pattern guidance
+# v0.6.2 — prompt-side anti-pattern guidance (validated against v3 prompts)
 # ============================================================================
+#
+# Anti-pattern guidance was added in v0.6.2 to the v2 prompts; v0.7.0
+# carried it forward into the v3 prompts. v2 prompts are deleted in
+# v0.7.0 (no dual-emit), so these tests assert against v3.
 
-
-PAPER_V2_PROMPT = SKILL_DIR_SRC / "prompts" / "adversarial_paper.v2.md"
-PRESENTATION_V2_PROMPT = SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v2.md"
+PAPER_V3_PROMPT = SKILL_DIR_SRC / "prompts" / "adversarial_paper.v3.md"
+PRESENTATION_V3_PROMPT = SKILL_DIR_SRC / "prompts" / "adversarial_presentation.v3.md"
 
 
 def test_paper_prompt_includes_unescaped_quote_anti_pattern():
-    """v0.6.2: paper.v2 prompt must include the explicit anti-pattern
+    """paper.v3 prompt must carry forward the v0.6.2 anti-pattern
     against unescaped inner quotes in JSON string fields."""
-    text = PAPER_V2_PROMPT.read_text(encoding="utf-8")
+    text = PAPER_V3_PROMPT.read_text(encoding="utf-8")
     assert "unescaped inner quotes" in text.lower() or "UNFIXABLE BY THE VALIDATOR" in text, (
-        "paper.v2 prompt missing unescaped-quote anti-pattern (v0.6.2 fix)"
+        "paper.v3 prompt missing unescaped-quote anti-pattern (v0.6.2 fix)"
     )
     # Should show all 4 correct approaches
     assert "Backslash-escape" in text
@@ -1254,9 +1302,258 @@ def test_paper_prompt_includes_unescaped_quote_anti_pattern():
 
 
 def test_presentation_prompt_includes_unescaped_quote_anti_pattern():
-    """v0.6.2: presentation.v2 prompt must also include the anti-pattern
+    """presentation.v3 prompt must carry forward the v0.6.2 anti-pattern
     (different reviewer, same JSON failure mode)."""
-    text = PRESENTATION_V2_PROMPT.read_text(encoding="utf-8")
+    text = PRESENTATION_V3_PROMPT.read_text(encoding="utf-8")
     assert "unescaped inner quotes" in text.lower() or "UNFIXABLE BY THE VALIDATOR" in text, (
-        "presentation.v2 prompt missing unescaped-quote anti-pattern (v0.6.2 fix)"
+        "presentation.v3 prompt missing unescaped-quote anti-pattern (v0.6.2 fix)"
+    )
+
+
+# ============================================================================
+# v0.7.0 — v3 schema acceptance + D1/D2 enforcement
+# ============================================================================
+
+
+def test_v3_presentation_minimal_valid_doc_passes():
+    """A minimum-valid presentation v3 doc with central_objection +
+    citation_reality should validate clean (no errors)."""
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        findings=[_make_finding()],
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="central_objection", severity="info"
+            )
+        ],
+    )
+    errors, _, _, stats = validator.validate(doc)
+    assert errors == [], f"unexpected errors on v3 doc: {errors}"
+    assert stats["schema_version"] == "adversarial-review-presentation.v3"
+
+
+def test_v3_paper_minimal_valid_doc_passes():
+    """A minimum-valid paper v3 doc with central_objection should
+    validate clean."""
+    doc = _make_paper_doc(
+        schema_version="adversarial-review-paper.v3",
+        findings=[
+            _make_paper_finding(fid="F001"),
+            _make_paper_manuscript_wide_finding(
+                fid="F002", cls="central_objection", severity="info"
+            ),
+        ],
+    )
+    errors, _, _, stats = validator.validate(doc)
+    assert errors == [], f"unexpected errors on paper v3 doc: {errors}"
+    assert stats["schema_version"] == "adversarial-review-paper.v3"
+
+
+def test_v3_rejects_narrative_weakness_with_migration_message():
+    """D1 (SCHEMA_V3_DECISIONS.md): v3 docs containing the dead class
+    name 'narrative_weakness' must be HARD-REJECTED with a migration
+    message pointing at central_objection. Not auto-corrected."""
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="narrative_weakness", severity="info"
+            )
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert errors, "expected D1 rejection of narrative_weakness in v3 doc"
+    # Error message should explicitly mention the rename + central_objection.
+    assert any("central_objection" in e for e in errors), (
+        f"D1 error message should reference central_objection: {errors}"
+    )
+    assert any("narrative_weakness" in e and "renamed" in e for e in errors), (
+        f"D1 error message should explain the rename: {errors}"
+    )
+
+
+def test_v3_paper_rejects_narrative_weakness_with_migration_message():
+    """D1 enforcement applies symmetrically to paper v3."""
+    doc = _make_paper_doc(
+        schema_version="adversarial-review-paper.v3",
+        findings=[
+            _make_paper_manuscript_wide_finding(
+                fid="F001", cls="narrative_weakness", severity="info"
+            ),
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert errors
+    assert any("central_objection" in e for e in errors)
+
+
+def test_v3_accepts_central_objection():
+    """central_objection is the canonical v3 synthesis class — should
+    pass with severity=info and the same exactly-once invariant that
+    narrative_weakness had in v2."""
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="central_objection", severity="info"
+            )
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert errors == []
+
+
+def test_v3_central_objection_must_be_severity_info():
+    """central_objection inherits the v2 invariant: severity must be info."""
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="central_objection", severity="P0"
+            )
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert any("central_objection" in e and "info" in e for e in errors)
+
+
+def test_v3_info_severity_reserved_for_central_objection():
+    """Inverse invariant: severity=info is reserved for central_objection
+    in v3 (was narrative_weakness in v2)."""
+    bad = _make_finding(fid="F001", cls="claim_evidence", severity="info")
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        findings=[bad],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert any("info" in e and "central_objection" in e for e in errors)
+
+
+def test_v3_presentation_accepts_citation_reality_with_citation_id():
+    """v3 promotes citation_reality from paper-only to shared.
+    Presentation v3 must accept citation_reality findings when the
+    citation_id field is present."""
+    f = _make_finding(
+        fid="F001",
+        cls="citation_reality",
+        severity="P1",
+        confidence="high",
+        # citation_reality is structural — title_quote optional per
+        # the per-finding-fields table in presentation.v3.md.
+        citation_id="Wetmore2015",
+        report_evidence=[
+            {"section": "§Finding 7", "quote": "29/47 concordant"},
+        ],
+    )
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        findings=[f],
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="central_objection", severity="info"
+            )
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert errors == [], f"unexpected errors: {errors}"
+
+
+def test_v3_citation_reality_requires_citation_id():
+    """D2 (SCHEMA_V3_DECISIONS.md): citation_reality findings must
+    include a non-empty citation_id. Validator rejects without it."""
+    f = _make_finding(
+        fid="F001",
+        cls="citation_reality",
+        severity="P1",
+        confidence="high",
+        # No citation_id field
+    )
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        findings=[f],
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="central_objection", severity="info"
+            )
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert any("citation_id" in e and "citation_reality" in e for e in errors), (
+        f"D2 should reject citation_reality without citation_id: {errors}"
+    )
+
+
+def test_v3_citation_reality_rejects_empty_citation_id():
+    """D2: empty-string citation_id is treated as missing."""
+    f = _make_finding(
+        fid="F001",
+        cls="citation_reality",
+        severity="P1",
+        confidence="high",
+        citation_id="   ",  # whitespace-only
+    )
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        findings=[f],
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="central_objection", severity="info"
+            )
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert any("citation_id" in e for e in errors)
+
+
+def test_v3_paper_citation_reality_also_requires_citation_id():
+    """D2 enforcement applies symmetrically to paper v3."""
+    f = _make_paper_finding(
+        fid="F001",
+        cls="citation_reality",
+        severity="P1",
+    )
+    # _make_paper_finding default doesn't include citation_id; that's
+    # what we want for this negative test.
+    doc = _make_paper_doc(
+        schema_version="adversarial-review-paper.v3",
+        findings=[
+            f,
+            _make_paper_manuscript_wide_finding(
+                fid="F002", cls="central_objection", severity="info"
+            ),
+        ],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert any("citation_id" in e for e in errors)
+
+
+def test_v3_presentation_rejects_paper_only_classes():
+    """Presentation v3 valid class set excludes paper-only classes
+    (section_arc, missing_section, report_drift, abstract_body_mismatch).
+    Note: citation_reality is NO LONGER paper-only in v3 (it's shared)."""
+    bad = _make_finding(fid="F001", cls="abstract_body_mismatch")
+    doc = _make_doc(
+        schema_version="adversarial-review-presentation.v3",
+        findings=[bad],
+    )
+    errors, _, _, _ = validator.validate(doc)
+    assert any("abstract_body_mismatch" in e for e in errors)
+
+
+def test_v2_doc_emits_deprecation_warning():
+    """D6: v2 docs should still parse but get a DEPRECATED warning
+    pointing at v3 as current."""
+    doc = _make_doc(
+        # default is v2; explicit for clarity
+        schema_version="adversarial-review-presentation.v2",
+        deck_findings=[
+            _make_deck_finding(
+                fid="DL001", cls="narrative_weakness", severity="info"
+            )
+        ],
+    )
+    errors, _, warnings, _ = validator.validate(doc)
+    assert errors == []  # v2 still valid; just deprecated
+    assert any("DEPRECATED" in w and "v3" in w for w in warnings), (
+        f"v2 doc should get deprecation warning pointing at v3: {warnings}"
     )

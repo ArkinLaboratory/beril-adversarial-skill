@@ -383,24 +383,35 @@ run_presentation_review() {
     DRAFT_NUMBER="$DRAFT_BASENAME"
   fi
 
-  # As of v0.5.0 the prompt is at .v2.md (single-array schema). The
-  # .v1.md file is preserved as a deprecation stub; we explicitly do
-  # NOT load it.
-  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_presentation.v2.md"
+  # As of v0.7.0 the prompt is at .v3.md (renamed narrative_weakness ->
+  # central_objection + added citation_reality class for parity with
+  # paper). The .v2.md file is removed in v0.7.0 — no dual-emit. The
+  # validator continues to accept v2 audit JSONs for forensic
+  # inspection, but new runs emit v3 only.
+  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_presentation.v3.md"
   if [[ ! -f "$SYSTEM_PROMPT_FILE" ]]; then
     echo "Error: presentation system prompt not found: $SYSTEM_PROMPT_FILE" >&2
     echo "Run 'beril-adversarial install-skill <BERIL_ROOT>' to refresh." >&2
-    echo "(If you see adversarial_presentation.v1.md but not .v2.md, the" >&2
-    echo " installed skill is from a v0.4.x build; refresh via pipx install" >&2
+    echo "(If you see adversarial_presentation.v2.md but not .v3.md, the" >&2
+    echo " installed skill is from a v0.6.x build; refresh via pipx install" >&2
     echo " --force <wheel> + beril-adversarial install-skill <BERIL>.)" >&2
     exit 2
   fi
 
-  # Output paths (under draft_dir/audit/)
+  # Output paths (under draft_dir/audit/). v0.7.0: --output flag is now
+  # honored; if set, use its basename (sans .md/.json extension) as the
+  # output basename. Without --output, defaults to canonical
+  # adversarial_review.{md,json}.
   local AUDIT_DIR="$DRAFT_DIR/audit"
   mkdir -p "$AUDIT_DIR"
-  local OUT_MD="$AUDIT_DIR/adversarial_review.md"
-  local OUT_JSON="$AUDIT_DIR/adversarial_review.json"
+  local OUT_BASENAME="adversarial_review"
+  if [[ -n "$OUTPUT_FILE" ]]; then
+    OUT_BASENAME="$(basename "$OUTPUT_FILE")"
+    OUT_BASENAME="${OUT_BASENAME%.md}"
+    OUT_BASENAME="${OUT_BASENAME%.json}"
+  fi
+  local OUT_MD="$AUDIT_DIR/${OUT_BASENAME}.md"
+  local OUT_JSON="$AUDIT_DIR/${OUT_BASENAME}.json"
 
   # Optional speaker_notes pointer (a directory, not a file). The path
   # was resolved per layout-version above; just check existence here.
@@ -446,29 +457,39 @@ Write tool calls you made, you have not finished the task — invoke
 Write now.
 
 In the JSON, set:
-  - schema_version: adversarial-review-presentation.v2
+  - schema_version: adversarial-review-presentation.v3
   - reviewer_model: ${MODEL}
-  - prompt_version: adversarial_presentation.v2
+  - prompt_version: adversarial_presentation.v3
   - project_id: ${PROJECT_ID_LOCAL}
   - draft_number: ${DRAFT_NUMBER}
   - draft_dir: ${DRAFT_DIR}
 
-Use the SINGLE-ARRAY schema v2: ALL findings (slide-level and
+Use the SINGLE-ARRAY schema v3: ALL findings (slide-level and
 deck-level) live in the findings[] array. Deck-level findings
-(narrative_weakness, missing_slide) are signaled by absence of
-slide_id. Do NOT emit a deck_level_findings field — it is rejected
-in v2.
+(central_objection, missing_slide) are signaled by absence of
+slide_id. Do NOT emit a deck_level_findings field — it was rejected
+in v2 and remains rejected in v3.
+
+v3 vs v2 reminder: the class formerly known as 'narrative_weakness'
+is now 'central_objection' (same role: ONE per review, severity=info,
+deck-wide synthesis — the killshot a peer reviewer would land). NEW
+in v3: 'citation_reality' is now an 8th detection class for
+presentations (parity with paper). Emit citation_reality findings ONLY
+when a slide has a present-but-questionable citation surface
+(in-text marker, footer, or provenance_pin); silent absence of
+citation routes to claim_evidence/unbacked_quantitative instead.
 
 In the .md frontmatter, set:
   - reviewer: BERIL Adversarial Review (Presentation, ${MODEL})
   - project_id: ${PROJECT_ID_LOCAL}
   - draft_number: ${DRAFT_NUMBER}
-  - prompt_version: adversarial_presentation.v2
+  - prompt_version: adversarial_presentation.v3
 
 Follow the system prompt's detection protocol exactly. Walk every
-content slide; run all 7 detection classes. Do not stop early.
-Quote both sides for every claim_evidence and register_drift
-finding. Recount the summary block before emitting JSON."
+content slide; run all 8 detection classes. Do not stop early.
+Quote both sides for every claim_evidence, register_drift, and
+citation_reality (drift / pin-drift) finding. Recount the summary
+block before emitting JSON."
 
   echo "Invoking Claude presentation reviewer (model: ${MODEL})..."
   echo "  Draft dir: ${DRAFT_DIR}"
@@ -518,7 +539,7 @@ finding. Recount the summary block before emitting JSON."
     done
     echo "This is a known stochastic failure mode of claude -p with rich tool" >&2
     echo "grants — re-run the command. If it persists, the prompt may need" >&2
-    echo "tightening (see prompts/adversarial_presentation.v2.md self-skepticism)." >&2
+    echo "tightening (see prompts/adversarial_presentation.v3.md self-skepticism)." >&2
     exit 2
   fi
 
@@ -736,21 +757,30 @@ run_paper_review_v2() {
     DRAFT_NUMBER="$DRAFT_BASENAME"
   fi
 
-  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_paper.v2.md"
+  local SYSTEM_PROMPT_FILE="$PROMPTS_DIR/adversarial_paper.v3.md"
   if [[ ! -f "$SYSTEM_PROMPT_FILE" ]]; then
     echo "Error: paper system prompt not found: $SYSTEM_PROMPT_FILE" >&2
     echo "Run 'beril-adversarial install-skill <BERIL_ROOT>' to refresh." >&2
-    echo "(If you see adversarial_paper.v1.md but not .v2.md, the installed skill" >&2
-    echo " is from a v0.5.x build; refresh via pipx install --force <wheel> +" >&2
+    echo "(If you see adversarial_paper.v2.md but not .v3.md, the installed skill" >&2
+    echo " is from a v0.6.x build; refresh via pipx install --force <wheel> +" >&2
     echo " beril-adversarial install-skill <BERIL>.)" >&2
     exit 2
   fi
 
-  # Output paths (under draft_dir/audit/)
+  # Output paths (under draft_dir/audit/). v0.7.0: --output flag is now
+  # honored; if set, use its basename (sans .md/.json extension) as the
+  # output basename. Without --output, defaults to canonical
+  # adversarial_review.{md,json}.
   local AUDIT_DIR="$DRAFT_DIR/audit"
   mkdir -p "$AUDIT_DIR"
-  local OUT_MD="$AUDIT_DIR/adversarial_review.md"
-  local OUT_JSON="$AUDIT_DIR/adversarial_review.json"
+  local OUT_BASENAME="adversarial_review"
+  if [[ -n "$OUTPUT_FILE" ]]; then
+    OUT_BASENAME="$(basename "$OUTPUT_FILE")"
+    OUT_BASENAME="${OUT_BASENAME%.md}"
+    OUT_BASENAME="${OUT_BASENAME%.json}"
+  fi
+  local OUT_MD="$AUDIT_DIR/${OUT_BASENAME}.md"
+  local OUT_JSON="$AUDIT_DIR/${OUT_BASENAME}.json"
 
   # Resolve model
   if [[ -z "$MODEL" ]]; then
@@ -787,30 +817,40 @@ Write tool calls you made, you have not finished the task — invoke
 Write now.
 
 In the JSON, set:
-  - schema_version: adversarial-review-paper.v2
+  - schema_version: adversarial-review-paper.v3
   - reviewer_model: ${MODEL}
-  - prompt_version: adversarial_paper.v2
+  - prompt_version: adversarial_paper.v3
   - project_id: ${PROJECT_ID_LOCAL}
   - draft_number: ${DRAFT_NUMBER}
   - draft_dir: ${DRAFT_DIR}
 
-Use the SINGLE-ARRAY schema v2: ALL findings (section-level and
+Use the SINGLE-ARRAY schema v3: ALL findings (section-level and
 manuscript-wide) live in the findings[] array. Manuscript-wide
-findings (narrative_weakness, missing_section, throughline-level
+findings (central_objection, missing_section, throughline-level
 issues, abstract_body_mismatch when truly cross-section) are signaled
 by absence of section. Do NOT emit a deck_level_findings field — that
 was the presentation v1 schema, removed in v2 of both schemas.
+
+v3 vs v2 reminder: the class formerly known as 'narrative_weakness'
+is now 'central_objection' (same role: ONE per review, severity=info,
+manuscript-wide synthesis — the killshot a peer reviewer would land).
+All 10 paper-side classes are otherwise unchanged from v2. The
+validator HARD-REJECTS v3 docs containing 'narrative_weakness' — use
+'central_objection'.
 
 In the .md frontmatter, set:
   - reviewer: BERIL Adversarial Review (Paper, ${MODEL})
   - project_id: ${PROJECT_ID_LOCAL}
   - draft_number: ${DRAFT_NUMBER}
-  - prompt_version: adversarial_paper.v2
+  - prompt_version: adversarial_paper.v3
 
 Follow the system prompt's detection protocol exactly. Walk every
 substantive claim; run all 10 detection classes. Do not stop early.
 Quote both sides for every claim_evidence, register_drift,
-unbacked_quantitative, and report_drift finding. Recount the summary
+unbacked_quantitative, report_drift, and citation_reality
+(drift / pin-drift) finding. For citation_reality fabrication
+(in-text marker exists; bibliography entry doesn't), report_evidence
+is OPTIONAL — citation_id + issue carry the load. Recount the summary
 block before emitting JSON (validator will auto-correct if you
 miscount, but try)."
 

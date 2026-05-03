@@ -434,7 +434,127 @@ punchline?
 `substory_design.v1.md` (substory boundaries, climax markers in
 punchlines).
 
-### Class 6: missing slides / coverage gaps
+### Class 6: citation reality
+
+**The question:** Where the deck cites a source (paper, REPORT.md
+section, dataset DOI), does the citation exist, is it correctly
+attributed, and does it actually support the specific claim it's
+pinned to?
+
+**Class history note:** New in v3. Paper reviewer has had this class
+since v2; presentation reviewer adopts it in v3 for parity. The
+detection logic mirrors paper's Class 5 with slide-locus adaptations.
+
+**Where presentation citations live:**
+- **Slide footer:** "Smith et al. 2023" or "data: GTDB r214" or
+  "REPORT.md §Finding 7"
+- **In-text citation marker:** `[@Smith2023]` in slide bullets or
+  captions
+- **Provenance pin block:** the `provenance_pin` field in
+  slide_spec.json that ties the slide to a specific REPORT section /
+  notebook output / dataset
+- **Tables and figure captions:** "Source: GTDB v214" or "Adapted
+  from Wetmore 2015"
+
+**Detection criteria:**
+
+1. **Walk every slide that has a citation.** If a slide has no
+   provenance pin / no footer / no in-text citation marker, this
+   class does NOT apply (silent absence is not a `citation_reality`
+   finding — other classes like `claim_evidence` may flag the
+   absence under different framings).
+
+2. **For each citation present, identify the source type.** Bibtex
+   citation (paper) → check references.md / citation_pool.json.
+   REPORT.md section reference → check the REPORT section actually
+   exists and contains the cited content. Dataset DOI → check it
+   resolves and the dataset matches the description.
+
+3. **Does the cited source support the SPECIFIC claim, not just the
+   topic?** A citation to Wetmore 2015 (the RB-TnSeq foundational
+   paper) pinned to a slide making a SPECIFIC claim about
+   Pseudomonas aerobic growth fitness must — at minimum — be a
+   paper that reports Pseudomonas aerobic-growth fitness data.
+   Topic-adjacent citations are citation drift (P1).
+
+4. **Citation fabrication.** A citation marker on a slide whose
+   reference does not exist in references.md / citation_pool.json /
+   the project's bibliography is fabrication (P0).
+
+5. **REPORT-pin reality.** If the slide's `provenance_pin` claims
+   to come from REPORT §Finding 7, verify that §Finding 7 in the
+   REPORT.md actually contains the slide's claim. A pin to a
+   section that doesn't say what the slide says is silent drift
+   (P0; cross-cuts with `claim_evidence` and `report_drift` —
+   prefer this class when the pin itself is the issue).
+
+6. **Foundational citations.** If the deck's central claim depends
+   on a methodology (e.g., RB-TnSeq, AlphaFold, GTDB), check that
+   the foundational citation is present somewhere in the deck. Not
+   on every slide — but somewhere a careful audience member would
+   find it. Absence on a STRONG-tier deck is P1.
+
+**Severity calibration:**
+- **P0** for fabricated citation (marker on slide; no corresponding
+  bibliography / REPORT entry).
+- **P0** for citation cited as supporting a specific claim but the
+  cited source actually says not-X or claims nothing about X.
+- **P0** for `provenance_pin` to a REPORT section that does NOT
+  contain the slide's claim.
+- **P1** for citation drift (cited source is in the right field /
+  topic but doesn't support the specific claim).
+- **P1** for missing foundational citation that the audience would
+  expect for a STRONG-tier claim.
+- **P2** for vague citation form ("recent work has shown" without
+  attribution; "data: previous results").
+
+**fix_target options:** `slide_compose.v1.md` (most common — fix
+the slide footer / in-text citation), `provenance.v1.md` (if the
+presentation-maker pipeline has a provenance prompt), or
+`citation_pool.v1.md` (if the citation pool itself is the issue —
+fabrication or drift in the pool spreads to every slide that pins
+against it).
+
+**Required fields:** `slide_id`, `citation_id` (NEW in v3 — the
+bibtex key, DOI, REPORT.md section reference, or other string
+identifier of the cited source), `report_evidence` for any P0/P1
+(see carve-out below for fabrication subclass). `title_quote` is
+OPTIONAL for citation_reality (the locus is the citation surface,
+not the slide title — see the per-finding-fields table below); a
+slide with title "Lab-field concordance: 61.7% agreement
+[Wetmore 2015]" can be flagged with or without quoting the title.
+
+**Emission gate:** Only emit `citation_reality` findings when a
+citation surface is PRESENT and questionable. A "citation surface"
+includes ANY of: an in-text citation marker (e.g.,
+`[Smith2023]`), a slide footer attribution, OR a `provenance_pin`
+block in slide_spec.json. A wrong/fabricated `provenance_pin`
+counts as a present-but-questionable citation and IS a
+`citation_reality` finding (severity P0 per the calibration above —
+the pin claims provenance the REPORT doesn't actually support).
+NOTE on fabrication: an in-text marker (e.g., `[Smith2099]`) with
+no corresponding bibliography entry IS a present-but-questionable
+citation (the marker exists on the slide; the bibliography doesn't
+back it). Flag as P0 fabrication.
+
+A slide that lacks ALL three citation surfaces (no in-text marker,
+no footer, no `provenance_pin`) is NOT a `citation_reality`
+finding — flag the unsupported claim as `claim_evidence` or
+`unbacked_quantitative` instead. This avoids over-flagging every
+unbacked claim slide.
+
+**Carve-out for fabrication and `report_evidence`:** When the
+finding is a fabricated citation (in-text marker exists; no
+bibliography entry), there's no source content to quote. In that
+case `report_evidence` is OPTIONAL — `citation_id` (the fabricated
+marker, e.g., "Smith2099") + `issue` prose carry the load. The
+general rule "report_evidence required for P0/P1 citation_reality"
+applies to citation drift (cited source exists but doesn't support
+the claim — quote what it actually says) and provenance-pin drift
+(cited REPORT section doesn't contain the slide's claim — quote
+the section). Pure fabrication has no quote source.
+
+### Class 7: missing slides / coverage gaps
 
 **The question:** What's missing from the deck that the throughline
 promises?
@@ -486,11 +606,22 @@ slot), or a new layout type if the missing slide can't be
 expressed in current vocabulary (e.g., a "top_candidates" layout
 naming the prioritized list).
 
-### Class 7: the deck's biggest narrative weakness
+### Class 8: central objection (peer-reviewer killshot)
 
 **The question:** If a hostile reviewer in the audience asked the
 SINGLE question that lands hardest, what would it be? Does any slide
 preempt it?
+
+**Class name note:** This class was called `narrative_weakness` in
+v2 (and was Class 7 — bumped to Class 8 in v3 because
+`citation_reality` was inserted as the new Class 6). Renamed to
+`central_objection` because "narrative weakness" was being misread
+as a quality judgment ("the deck has a weak narrative") rather than
+the actual function: identify the central thing the deck needs to
+defend against. Function unchanged from v2 — exactly one finding
+per review, severity=info, deck-wide synthesis. v2 audit JSONs
+containing `narrative_weakness` continue to be readable by the
+validator.
 
 **Detection criteria:**
 
@@ -538,7 +669,7 @@ date: {YYYY-MM-DD}
 draft_dir: {absolute path}
 project_id: {project_id}
 draft_number: {N}
-prompt_version: adversarial_presentation.v2
+prompt_version: adversarial_presentation.v3
 tier: {STRONG|THIN|EXPLORATORY}
 total_findings: {N}
 severity_counts:
@@ -551,14 +682,15 @@ class_counts:
   register_drift: {N}
   qa_softball: {N}
   substory_arc: {N}
+  citation_reality: {N}
   missing_slide: {N}
   unbacked_quantitative: {N}
-  narrative_weakness: 1
+  central_objection: 1
 ---
 
 # Adversarial Review — {project_id} draft_{N}
 
-**Reviewer:** beril-adversarial --type presentation v2 ({model-id})
+**Reviewer:** beril-adversarial --type presentation v3 ({model-id})
 **Reviewed at:** {ISO-8601 timestamp}
 **Total findings:** {N} ({P0_count} P0, {P1_count} P1, {P2_count} P2)
 
@@ -598,13 +730,21 @@ the Q&A set that should be.}
 {Findings of class substory_arc. Identify the substory, the slide
 order issue, and the proposed re-ordering.}
 
-## F. Missing-slide / coverage gaps
+## F. Citation reality
+
+{Findings of class citation_reality. For each finding identify the
+slide, the citation source (footer, in-text marker, or
+provenance_pin), the cited identifier (citation_id), what the cited
+source actually says vs. what the slide claims, and the proposed
+fix (replace citation, soften claim, drop the pin).}
+
+## G. Missing-slide / coverage gaps
 
 {Findings of class missing_slide. Identify the missing slide, what
 the throughline promised, where in the deck it should be inserted,
 and what content it should contain (with REPORT references).}
 
-## G. The deck's biggest narrative weakness
+## H. Central objection (peer-reviewer killshot)
 
 {ONE paragraph. The single objection the speaker most needs to be
 ready for. Whether the deck preempts it. Suggested structural fix.}
@@ -635,7 +775,7 @@ Group format:
 (... and so on for every finding. Empty groups can be omitted.
 Note: in v2 there is a SINGLE F### namespace — deck-level findings
 also use F### IDs, not DL###. Use the parenthetical "(deck-level
-missing_slide)" or "(deck-level narrative_weakness)" to indicate
+missing_slide)" or "(deck-level central_objection)" to indicate
 deck-level findings in the .md report.)
 }
 ```
@@ -648,17 +788,17 @@ fix-target routing.
 
 ### File 2: `<draft_dir>/audit/adversarial_review.json`
 
-Schema (this is the consumer contract — `adversarial-review-presentation.v2`):
+Schema (this is the consumer contract — `adversarial-review-presentation.v3`):
 
 ```json
 {
-  "schema_version": "adversarial-review-presentation.v2",
+  "schema_version": "adversarial-review-presentation.v3",
   "draft_dir": "/abs/path/to/talks/draft_N",
   "project_id": "string",
   "draft_number": 9,
   "reviewed_at": "2026-04-29T13:42:00Z",
   "reviewer_model": "claude-sonnet-4-...",
-  "prompt_version": "adversarial_presentation.v2",
+  "prompt_version": "adversarial_presentation.v3",
   "tier": "STRONG",
   "summary": {
     "total_findings": 18,
@@ -669,9 +809,10 @@ Schema (this is the consumer contract — `adversarial-review-presentation.v2`):
       "register_drift": 3,
       "qa_softball": 3,
       "substory_arc": 2,
+      "citation_reality": 2,
       "missing_slide": 1,
       "unbacked_quantitative": 1,
-      "narrative_weakness": 1
+      "central_objection": 1
     }
   },
   "findings": [
@@ -703,7 +844,7 @@ Schema (this is the consumer contract — `adversarial-review-presentation.v2`):
     },
     {
       "id": "F018",
-      "class": "narrative_weakness",
+      "class": "central_objection",
       "severity": "info",
       "confidence": "high",
       "issue": "The deck's central weakness is the gap between 'we identified 100 high-priority candidates' and 'we validated this prioritization actually surfaces real biology.' The 82% high-confidence figure is a self-graded score; the only external validation is lab-field concordance at marginal significance. A hostile reviewer asks: 'How do you know your prioritization isn't sophisticated post-hoc rationalization?' The deck does not preempt this. Suggested fix: add a single slide showing predictive validation — either (a) hold-out organism prediction, (b) prospective experimental validation results, or (c) explicit concession that prospective validation is the next step.",
@@ -714,7 +855,7 @@ Schema (this is the consumer contract — `adversarial-review-presentation.v2`):
 }
 ```
 
-**Schema v2 single-array structure (KEY CHANGE FROM v1):**
+**Schema v3 single-array structure (preserved from v2; KEY CHANGE FROM v1):**
 
 There is ONE `findings[]` array. ALL findings live in it. There is
 NO `deck_level_findings[]` field — emitting one will fail validation.
@@ -724,7 +865,7 @@ NO `deck_level_findings[]` field — emitting one will fail validation.
 - **Deck-level findings** OMIT `slide_id` (and the other slide-level
   fields). The reviewer signals "this finding has no single slide
   locus" by leaving `slide_id` out.
-  - `narrative_weakness` is ALWAYS deck-level (no slide_id).
+  - `central_objection` is ALWAYS deck-level (no slide_id).
   - `missing_slide` is ALWAYS deck-level (it's about a slide that
     isn't there).
   - Deck-wide narrative or substory-spanning issues without a
@@ -734,13 +875,13 @@ This means the LLM does NOT have to decide which array a finding
 goes in — there is only one array. The presence/absence of
 `slide_id` is the signal.
 
-**Field rules (v2):**
+**Field rules (v3):**
 
 - `severity` ∈ `{"P0", "P1", "P2", "info"}` — `info` only for the
-  single Class 7 narrative_weakness finding.
+  single Class 8 central_objection finding.
 - `class` ∈ `{"throughline", "claim_evidence", "register_drift",
-  "qa_softball", "substory_arc", "missing_slide",
-  "unbacked_quantitative", "narrative_weakness"}`.
+  "qa_softball", "substory_arc", "citation_reality",
+  "missing_slide", "unbacked_quantitative", "central_objection"}`.
 - `confidence` ∈ `{"high", "medium", "low"}`.
   - **high** — "I am certain this is wrong; I quoted both sides."
   - **medium** — "I think this is wrong; some interpretive
@@ -762,10 +903,21 @@ goes in — there is only one array. The presence/absence of
   `revise_slide.v1.md` prompt will operationalize.
 - `report_evidence` — array of `{"section", "quote"}` objects (lines
   field optional, since REPORT line numbers are unstable). EVERY
-  P0 and P1 finding in the claim_evidence and register_drift
-  classes MUST include a non-empty `report_evidence`.
+  P0 and P1 finding in the claim_evidence, register_drift, and
+  citation_reality classes MUST include a non-empty
+  `report_evidence` (citation_reality's report_evidence quotes the
+  REPORT section the slide pin claims to come from), EXCEPT:
+  citation_reality findings of fabrication subclass (in-text
+  marker exists; no bibliography entry, so no source content to
+  quote) — `report_evidence` is OPTIONAL for fabrication; the
+  `citation_id` + `issue` carry the load.
+- `citation_id` — for citation_reality findings, the bibtex key,
+  DOI, REPORT.md section reference (e.g., `"REPORT§Finding 7"`),
+  or other string identifier of the cited source being flagged.
+  String. Required for `citation_reality` findings; optional /
+  unused for other classes.
 
-**Required vs. optional per-finding fields (v2):**
+**Required vs. optional per-finding fields (v3):**
 
 | Field | Required? | Notes |
 |---|---|---|
@@ -779,9 +931,10 @@ goes in — there is only one array. The presence/absence of
 | `slide_id` | optional | absence ⇒ deck-level finding |
 | `slide_position` | optional | required IFF slide_id present |
 | `slide_layout` | optional | required IFF slide_id present |
-| `title_quote` | optional | required IFF slide_id present |
+| `title_quote` | optional | required IFF slide_id present, EXCEPT optional for `central_objection`, `missing_slide`, `substory_arc`, `throughline`, `citation_reality` (those are structural, not text-specific) |
 | `substory_id` | optional | string or null |
-| `report_evidence` | required for P0/P1 claim_evidence + register_drift; optional otherwise | array of `{section, quote}` |
+| `citation_id` | required for `citation_reality` only | string identifier of the cited source |
+| `report_evidence` | required for P0/P1 in `claim_evidence` + `register_drift` + `citation_reality` (drift / pin-drift), OPTIONAL for citation_reality fabrication subclass; optional for other classes | array of `{section, quote}` |
 
 **JSON validity:**
 
@@ -839,7 +992,7 @@ double-quotes unescaped.** Apply this rule to EVERY string field in
 the JSON.
 
 If you cannot produce valid JSON for any reason, write a JSON file
-with `{"schema_version": "adversarial-review-presentation.v2",
+with `{"schema_version": "adversarial-review-presentation.v3",
 "error": "<reason>"}` and exit. Do not produce malformed JSON.
 
 ---
@@ -972,7 +1125,7 @@ Or after slide 18, before slide 19 (roadmap).
 
 **Step 3: Emit the finding.**
 
-In schema v2, this is a deck-level finding — it has no single slide
+In schema v3, this is a deck-level finding — it has no single slide
 locus, so it OMITS `slide_id`, `slide_position`, `slide_layout`,
 and `title_quote`. It still goes in the same `findings[]` array as
 slide-level findings; the absence of `slide_id` is the signal.
@@ -1250,9 +1403,131 @@ a generic "multi-source evidence" claim.
 
 ---
 
-## Worked example: narrative weakness (Class 7) — the killshot
+## Worked example: citation_reality detection on a presentation slide (Class 6)
 
-This is the SINGLE finding of class narrative_weakness. Every
+Suppose slide 12 of a `functional_dark_matter` deck has:
+
+- **Layout:** `data_figure`
+- **Title:** "Lab-field concordance: 61.7% directional agreement [Wetmore 2015]"
+- **Footer:** "Wetmore et al. 2015 (Mol Syst Biol); Fisher's p=0.031"
+- **provenance_pin:** `"REPORT§Finding 7"`
+
+**Step 1: Identify the citation source.**
+
+Three candidate sources on this slide:
+- The in-title bracketed marker `[Wetmore 2015]`.
+- The footer "Wetmore et al. 2015 (Mol Syst Biol)".
+- The `provenance_pin` field pointing at `REPORT§Finding 7`.
+
+Walk each.
+
+**Step 2: Verify Wetmore 2015 in the deck's citation pool.**
+
+Grep `citation_pool.json` (or the project's bibliography) for
+"Wetmore 2015". Suppose it resolves: Wetmore KM, Price MN, et al.
+2015. "Rapid Quantification of Mutant Fitness in Diverse Bacteria
+by Sequencing Randomly Bar-Coded Transposons." mBio 6:e00306-15.
+
+So Wetmore 2015 exists. Now: does Wetmore 2015 actually report
+"61.7% lab-field directional concordance"?
+
+Wetmore 2015 is the foundational RB-TnSeq method paper. It
+demonstrates the method but does NOT report a specific lab-field
+concordance percentage for THIS project's dark genes. The 61.7%
+figure is a finding of the present project's analysis (REPORT
+§Finding 7), not of Wetmore 2015. The slide is pinning the
+percentage to Wetmore 2015 — which is **citation drift** (the
+cited paper is in the right field but doesn't support the specific
+number being claimed).
+
+**Step 3: Verify the provenance_pin.**
+
+`provenance_pin = "REPORT§Finding 7"`. Read REPORT.md §Finding 7.
+If §Finding 7 contains "29/47 (61.7%) of testable dark gene
+clusters are concordant" + the Fisher p=0.031 — then the pin is
+honest. The slide's provenance is correctly anchored to the
+project's REPORT, but the slide ALSO emits a citation marker
+suggesting Wetmore 2015 is the source of the percentage, which is
+misleading.
+
+**Step 4: Diagnose.**
+
+The 61.7% number is correctly anchored via `provenance_pin` to
+REPORT §Finding 7 (the project's own analysis). The Fisher p=0.031
+is correctly attributed in the footer (it's also from REPORT
+§Finding 7). But the in-title `[Wetmore 2015]` marker is citation
+drift — a reader sees "[Wetmore 2015]" attached to "61.7%" and
+infers Wetmore 2015 reported this number. Wetmore 2015 reported
+the METHOD; the project's REPORT reports the NUMBER.
+
+**Step 5: Severity.**
+
+P1 citation_reality (citation drift), confidence: high — both sides
+are quotable (the slide title verbatim, REPORT §Finding 7 verbatim,
+Wetmore 2015's actual scope from its abstract).
+
+**Step 6: Fix hint.**
+
+Either:
+- (a) Move `[Wetmore 2015]` out of the title (it's the method
+  citation, fine in the footer alongside other method citations).
+  Title becomes: "Lab-field concordance: 61.7% directional
+  agreement (REPORT §Finding 7)".
+- (b) Drop the in-title bracketed marker entirely; let the footer
+  carry the method attribution.
+- (c) If the deck's convention is to attribute every quantitative
+  claim in the title, attribute correctly: "Lab-field concordance:
+  61.7% directional agreement (this project; method [Wetmore
+  2015])".
+
+**Step 7: Emit JSON entry.**
+
+```json
+{
+  "id": "F006",
+  "class": "citation_reality",
+  "severity": "P1",
+  "confidence": "high",
+  "slide_id": 12,
+  "slide_position": 12,
+  "slide_layout": "data_figure",
+  "substory_id": "S2",
+  "title_quote": "Lab-field concordance: 61.7% directional agreement [Wetmore 2015]",
+  "citation_id": "Wetmore2015",
+  "issue": "Title attributes '61.7% directional agreement' to [Wetmore 2015]. Wetmore 2015 is the foundational RB-TnSeq method paper; it does not report a 61.7% concordance figure for THIS project's dark genes. The 61.7% is correctly anchored elsewhere on the slide via provenance_pin to REPORT §Finding 7 (the project's own analysis). Citation drift: cited paper is in the right field (RB-TnSeq) but doesn't support the specific quantitative claim being attributed to it.",
+  "report_evidence": [
+    {"section": "§Finding 7", "quote": "29/47 (61.7%) of testable dark gene clusters are concordant"}
+  ],
+  "fix_target": "slide_compose.v1.md",
+  "fix_hint": "Move [Wetmore 2015] out of the title (it belongs with the method attribution in the footer). Rewrite title to: 'Lab-field concordance: 61.7% directional agreement (REPORT §Finding 7)' so the source of the number is correctly attributed to the project's own analysis, not to the method paper."
+}
+```
+
+This is the level of specificity required for every
+citation_reality finding. Quote the slide's citation surface (title,
+footer, provenance_pin). Verify what the cited source actually says
+vs. what the slide claims it says. Propose a concrete textual fix
+that fixes the misattribution without dropping the legitimate part.
+
+**When NOT to flag citation_reality:**
+
+- A slide that has NO citation, NO footer, NO provenance_pin, and
+  makes an unbacked numeric claim → flag as `unbacked_quantitative`,
+  not `citation_reality`. Silent absence of citation is a different
+  failure mode.
+- A slide whose footer correctly attributes the source AND whose
+  in-title marker (if any) correctly attributes the source → no
+  finding. The class triggers only on present-but-questionable.
+- A slide whose `provenance_pin` correctly resolves to a REPORT
+  section that contains the claim → no finding even if the slide
+  has no in-text citation. Provenance_pin satisfies the citation
+  obligation.
+
+---
+
+## Worked example: central objection (Class 8) — the peer-reviewer killshot
+
+This is the SINGLE finding of class central_objection. Every
 review must produce exactly one. Severity is `info`, not P0/P1/P2.
 
 **Template (do not copy verbatim — synthesize from this deck's
@@ -1296,7 +1571,7 @@ specific weaknesses):**
 - State whether ANY slide preempts it (with slide_id if yes).
 - Propose ONE concrete structural fix.
 
-**Emit as a deck-level finding** — in schema v2 this means: emit it
+**Emit as a deck-level finding** — in schema v3 this means: emit it
 in the same `findings[]` array as everything else, but OMIT
 `slide_id` and the other slide-level fields. The absence of
 `slide_id` signals "this is a synthesis across the whole deck;
@@ -1305,7 +1580,7 @@ there is no single slide locus":
 ```json
 {
   "id": "F018",
-  "class": "narrative_weakness",
+  "class": "central_objection",
   "severity": "info",
   "confidence": "high",
   "issue": "[paragraph above, verbatim or refined]",
@@ -1619,10 +1894,13 @@ After all slides are walked, run the deck-level passes:
 7. **Throughline integrity (Class 1).** Does each substory deliver
    what the throughline promised?
 8. **Substory arc (Class 5).** Walk each substory's slide order.
-9. **Missing slides (Class 6).** Walk the throughline's evidence
+9. **Citation reality (Class 6).** Walk every slide that has a
+   citation / footer / provenance pin; verify the cited source
+   exists and supports the slide's claim.
+10. **Missing slides (Class 7).** Walk the throughline's evidence
    map and check each load-bearing claim.
 10. **Q&A anti-strawman (Class 4).** Walk every Q&A slide.
-11. **Narrative weakness (Class 7).** Synthesize the single
+11. **Central objection (Class 8).** Synthesize the single
     sharpest objection across all the above.
 
 Then emit both files via Write.
@@ -1699,7 +1977,7 @@ The order of operations:
    protocol. Take notes (in your reasoning).
 
 3. **Walk the deck-level passes.** Throughline integrity, substory
-   arc, missing slides, Q&A, narrative weakness.
+   arc, missing slides, Q&A, citation reality, central objection.
 
 4. **Emit the .json file via Write.** Use the absolute path the
    user prompt provides for `audit/adversarial_review.json`. Verify
@@ -1731,7 +2009,14 @@ happened.
 | **P0** | Slide makes a false / unbacked / over-confident claim a peer reviewer would catch. Deck has a missing slide its central claim depends on. Q&A actively avoids the deck's central weakness. | Trigger revise loop: re-run targeted prompt for the slide(s); bounded retry. |
 | **P1** | Visible quality regression. The deck is presentable but a careful reviewer finds the issue. Includes most register_drift, qa_softball, substory_arc findings. | Surface in `next_actions.md`; user decides whether to revise. |
 | **P2** | Polish. Bullet wording, citation drift, topic-label titles where claim-form was possible. | Surface in `next_actions.md`; deferred. |
-| **info** | The single Class 7 narrative_weakness finding. Not a fix-ticket; a strategic note for the speaker. | Surface in `next_actions.md`; speaker rehearses a response. |
+| **info** | The single Class 8 central_objection finding. Not a fix-ticket; a strategic note for the speaker. | Surface in `next_actions.md`; speaker rehearses a response. |
+
+**v2 → v3 class changes:** What v2 called `narrative_weakness` is
+now `central_objection` (same function, clearer label). The new
+`citation_reality` class (parity with paper reviewer) detects
+fabricated/drifting citations on slides with footers, in-text
+markers, or provenance pins. Validator accepts both v2 and v3
+schemas during the deprecation window.
 
 The reviewer must populate `severity` for every finding. The
 consumer (presentation-maker) decides which severity triggers the
@@ -1754,7 +2039,7 @@ invoking Write, run this self-check:
    and register_drift finding?** If no, my finding is unverifiable
    — fix or drop.
 
-3. **Did I produce a class 7 narrative_weakness finding?** If no,
+3. **Did I produce a class 8 central_objection finding?** If no,
    I missed the killshot — synthesize one before emitting. The
    killshot must name a SPECIFIC objection (not "the discussion
    could be strengthened") with the audience's plausible question
@@ -1786,6 +2071,12 @@ invoking Write, run this self-check:
      class. See the slide 22 worked example.
    - **substory_arc:** did I walk each substory's slide_ids in
      order and check climax positioning?
+   - **citation_reality:** did I walk every slide that has a
+     footer / in-text citation marker / provenance_pin and verify
+     the cited source exists AND supports the specific claim it's
+     pinned to? If the deck has citations but my review has zero
+     citation_reality findings, that's a SIGN OF FAILURE for
+     citation-bearing decks — re-do.
    - **missing_slide:** did I walk every row of the throughline
      evidence map and verify a slide delivers it?
    If a class has zero findings AND I can't justify why, I
@@ -1816,7 +2107,7 @@ invoking Write, run this self-check:
    clusters classify as universal'" is actionable. Upgrade vague
    hints.
 
-9. **Did I assign every finding a unique id?** In schema v2 there
+9. **Did I assign every finding a unique id?** In schema v3 there
    is a SINGLE `F###` namespace for all findings (slide-level and
    deck-level). Sequential F001, F002, ... across the entire
    `findings[]` array. NO `DL###` ids — that was schema v1.

@@ -2,6 +2,146 @@
 
 ---
 
+## v0.7.0 — 2026-05-03 (schema bundle: `central_objection` rename, `citation_reality` on presentation, `--output` honored)
+
+Three breaking changes bundled into one schema bump
+(`adversarial-review-{paper,presentation}.v3`) so consumers absorb
+one re-pin migration instead of three sequential ones. The schema is
+otherwise stable; v0.7.0 is a coordinated migration release rather
+than a rearchitecting.
+
+### Schema changes — both paper and presentation
+
+- **Class rename: `narrative_weakness` → `central_objection`.** Same
+  function (one finding per review, severity=info, deck/paper-wide
+  synthesis). Renamed because the v2 label was being misread as a
+  quality judgment rather than the function: identify the central
+  thing the work needs to defend against. v3 docs containing the
+  dead class name are HARD-REJECTED by the validator (D1) with a
+  migration error message; not auto-corrected.
+
+### Schema changes — presentation only
+
+- **NEW class: `citation_reality`.** Already in paper since v0.6.0;
+  presentation v3 adopts it for parity. Detects fabricated /
+  drifting citations on slides with citation surfaces (footers,
+  in-text markers, `provenance_pin` blocks). Emission gate: only
+  fires when a citation is PRESENT and questionable; silent absence
+  routes to `claim_evidence` or `unbacked_quantitative`. Required
+  field: `citation_id` (string identifier — bibtex key, DOI, or
+  REPORT.md section reference). Inserted as Class 6, bumping
+  `missing_slide` 6→7 and `central_objection` 7→8 (paper class
+  numbers unchanged).
+
+### CLI behavior change
+
+- **`--output` flag now honored for `--type paper|presentation`.** In
+  v0.6.x, `--output` was silently ignored for these modes (per
+  CONTRACT.md v0.6.5 honesty fix). In v0.7.0 it works:
+  `--output myreview` writes to `<draft_dir>/audit/myreview.{md,json}`
+  instead of canonical `audit/adversarial_review.{md,json}`. Pattern A
+  iteration is now the supported path; Pattern B (rename `audit/`)
+  still works.
+
+  **Consumer-visible behavior change:** if your orchestrator was
+  passing `--output` thinking it was a no-op, audit your assumptions
+  — output paths will now differ. Consumers that don't pass
+  `--output` see no difference.
+
+### Validator changes (D1, D2, D6 from SCHEMA_V3_DECISIONS.md)
+
+- **D1: hard-reject v3 docs containing `narrative_weakness`** with a
+  clear migration error message. Forces consumer code to actually
+  switch to `central_objection`.
+- **D2: enforce `citation_id` required on `citation_reality`
+  findings** in any schema (paper v2/v3, presentation v3).
+- **D6: deprecation warnings for v2 schemas** (paper v2,
+  presentation v2). Validator continues to ACCEPT v2 docs (forensic
+  compatibility for v0.6.x audit files), but emits a warning and
+  exits 2 (warn-only) pointing at v3 as current.
+
+### CLI usability
+
+- **Argparse migration hint** for v0.5.x-shape invocations. When a
+  consumer invokes `beril-adversarial --type <kind> <positional>`
+  (the pre-v0.6.0 shape, no `review` subcommand), the CLI now emits
+  a tailored migration message pointing at CONTRACT.md instead of a
+  generic argparse usage error. Surfaced by the paper-writer team's
+  v0.6.5 incident where `paper_writer.sh` 0.6.3 captured argparse
+  stderr as the "review file."
+
+### Cross-skill coordination
+
+- **CONTRACT.md** updated with a prominent v0.7.0 migration section
+  at the top (consumers see it first), schema family compatibility
+  matrix updated for v3, severity vocabulary mapping updated to
+  reference `central_objection`, asymmetric class renumbering note,
+  consumer-side smoke test recommendation per
+  `feedback_cross_skill_contract_drift.md`.
+- **SCHEMA_V3_DECISIONS.md** captures Tier C/D/G implementation
+  contracts (D1-D6, C1-C3, G1-G5) so producer-side enforcement
+  matches prompt assumptions.
+
+### Forensic compatibility
+
+- v0.6.x audit files containing `narrative_weakness` (v2 schema)
+  remain readable by the v0.7.0 validator. The rename applies only
+  to v3 schema. Re-processing old audit files does NOT require
+  updating them.
+
+### Deferred to v0.7.1
+
+- **Fusion** (`--reviewer claude,codex`): parallel reviewer
+  invocation with merge / dedupe logic. Cut from v0.7.0 to ship
+  schema bundle in time for May 7 stress-test event. Tracked as
+  punch-list #37.
+- **`--auto-number` flag** for canonical reviewer output paths.
+  Tracked as #36.
+
+### Test coverage
+
+- 13 new v3-specific unit tests (D1 rejection both schemas,
+  D2 citation_id enforcement, central_objection invariants,
+  citation_reality on presentation v3, v2 deprecation warning).
+- Cross-skill interop test split into v2 (deprecated, exits 2) and
+  v3 (current, exits 0) variants.
+- Tests migrated from v2 fixtures to v3 where the test was checking
+  pass-path CLI behavior (not deprecation behavior).
+- Total: 193 passing (was 179 at v0.6.5; +14 net).
+
+### Operator impact
+
+```bash
+pipx install --force /path/to/beril_adversarial_skill-0.7.0-py3-none-any.whl
+beril-adversarial install-skill <BERIL_ROOT>
+```
+
+The deployed skill tree gains `adversarial_paper.v3.md` and
+`adversarial_presentation.v3.md`, drops the v2 prompt files (no
+dual-emit), and updates `adversarial_review.sh` to load the v3
+prompts. Consumer code WILL break if it matches `class ==
+"narrative_weakness"` and is run against v3 output without the
+rename.
+
+### Recommended consumer migration order
+
+1. Re-read CONTRACT.md §"v0.7.0 migration" (top of the file).
+2. Update class enum dispatch (`narrative_weakness` →
+   `central_objection`); optionally accept BOTH for one transition
+   release.
+3. Add a consumer-side smoke test asserting the orchestrator's
+   invocation of beril-adversarial exits 0, output file exists,
+   JSON parses, `schema_version` matches expected.
+4. (presentation-maker only) Add `citation_reality` finding routing
+   — surface to user for review; citations need human verification.
+5. Audit `--output` flag usage; if you were passing it thinking it
+   was a no-op, expect new output paths in v0.7.0.
+6. Update test fixtures from v2 to v3.
+7. Tag your release; notify Adam so the v2 deprecation removal can
+   be scheduled.
+
+---
+
 ## v0.6.5 — 2026-05-03 (docs-only — CONTRACT.md `--output` honesty fix)
 
 Single CONTRACT.md fix surfaced by paper-writer team's draft_9 live
