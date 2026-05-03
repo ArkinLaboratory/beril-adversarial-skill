@@ -59,6 +59,33 @@ exit codes for downstream scripts to act on.
 **For skill-to-skill integration:** use the CLI subcommand. See
 `CONTRACT.md` for the full programmatic interop surface.
 
+### Surface syntax — DO NOT conflate the two
+
+The two surfaces have **functionally equivalent behavior** but
+**slightly different syntax**. When the user types a command, identify
+which surface they used and respond using that surface's exact shape;
+do not describe one surface as if it were the other.
+
+| | Slash command | Python CLI subcommand |
+|---|---|---|
+| Invocation prefix | `/beril-adversarial` | `beril-adversarial` |
+| Subcommand keyword | NONE — target follows directly | **`review`** required (other subcommands: `install-skill`, `configure`) |
+| Full shape | `/beril-adversarial <target> --type X` | `beril-adversarial review <target> --type X` |
+| Where it runs | Claude Code agent inside a BERIL deployment | Shell (any environment with the pipx install) |
+| Behind-the-scenes | Agent runs `tools/adversarial_review.sh` directly | Python wrapper invokes the same shell script |
+
+**Common conflation to avoid:** when responding to a user who typed
+`beril-adversarial review --type X` (CLI shape, with `review`), do
+NOT say things like "the slash command takes `<project_id>` directly
+without a `review` keyword" — that is correct about the slash
+command but irrelevant when the user is using the CLI. Mirror the
+user's chosen surface in your response.
+
+**Both surfaces share:** the same project resolution tree (Step 1
+below), the same draft auto-detection (Step 2), the same shell script
++ validator + exit codes, the same output paths, and the same JSON
+schema. Differences are syntactic only.
+
 ## Mode selection — one matrix, four modes
 
 The `--type` flag picks the review mode. Each mode has a different

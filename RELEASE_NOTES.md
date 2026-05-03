@@ -36,6 +36,18 @@ which project they were working on.
 - "Where to go next" section updated to point at `SCHEMA_V3_DECISIONS.md`
   as current; v2 docs marked historical.
 
+### Added — SKILL.md "Surface syntax — DO NOT conflate the two"
+
+Live test on the hub surfaced an agent-side confusion: when the user
+typed the CLI shape (`beril-adversarial review --type project`), the
+agent responded by describing the SLASH COMMAND shape ("the slash
+command takes `<project_id>` directly without a `review` keyword").
+Cosmetic but confusing — both interfaces are equivalent
+functionally, but they have slightly different syntax (slash command
+omits the `review` keyword; CLI requires it). Added a side-by-side
+syntax comparison table + an explicit "DO NOT conflate" warning so
+the agent mirrors the user's chosen surface in its responses.
+
 ### No code changes
 
 Schema, validator, orchestrator, CLI all unchanged from v0.7.0. The
