@@ -2,6 +2,92 @@
 
 ---
 
+## v0.7.0.4 — 2026-05-05 (docs-only — cross-skill doc-consistency refactor)
+
+Docs-only refactor responding to presentation-maker team's pushback
+on the cross-skill doc-consistency proposal. The team had shipped
+`docs/cross-skill/PARTICIPANT-RUNBOOK.md` (637 lines, all 4 plug-in
+skills end-to-end) the day before, which made the v0.7.0.3 TUTORIAL's
+prereqs/install/configure sections substantially duplicative. The
+team's framing: per-skill TUTORIALs should scope to skill-specific
+deltas only; PLUGIN_GUIDE.md is redundant with TUTORIAL+HUB_INSTALL
++CONFIGURE; CONTRACT for atlas was premature documentation.
+
+### Re-scoped — TUTORIAL.md
+
+Shrunk from ~350 lines to ~210 lines. Removed:
+
+- Prerequisites section (cross-skill runbook covers it).
+- Install + skill-deploy sections (cross-skill runbook covers them).
+- Configure section (cross-skill runbook covers it).
+- "Run your first review" step-by-step (cross-skill runbook covers
+  the slash-command + CLI invocation patterns).
+- Cost management table that duplicated runbook §Cost.
+
+Kept (skill-specific only):
+
+- Pick-the-right-mode comparison table (4 modes).
+- Reading the output: severity counts, the 8/10 detection classes
+  with what each catches, the `central_objection` killshot semantics
+  + v2→v3 rename, `citation_reality` + `citation_id` semantics
+  (NEW in v3 for presentation), confidence ratings,
+  auto-correction warnings.
+- Iteration patterns (Pattern A `--output` flag vs Pattern B rename
+  `audit/`).
+- When to use `--reviewer claude,codex` fusion.
+- Consolidating numbered project/plan reviews.
+- Adversarial-specific troubleshooting (cross-references runbook
+  for general issues).
+
+Top of doc explicitly defers to PARTICIPANT-RUNBOOK for shared content.
+
+### Added — PLUGIN_GUIDE.md redirect banner
+
+PLUGIN_GUIDE.md gains a top-of-doc banner stating it's a
+comprehensive single-doc reference but new readers should start
+with TUTORIAL/HUB_INSTALL/CONTRACT. Per the cross-skill agreement,
+PLUGIN_GUIDE is no longer a target for new writing. Existing
+content kept verbatim for completeness.
+
+### Added — README.md "Documentation map" section
+
+New section (before §Quick start) tabulating every .md file with
+its audience + content summary. Includes the cross-skill
+PARTICIPANT-RUNBOOK URL. Trivially navigable for readers landing
+on the repo for the first time.
+
+### Should-be-cleaned (operator action)
+
+`spike/beril-presentation-maker-skill-draft/PLUGIN_GUIDE_SKELETON.md`
+should be deleted — per the cross-skill agreement, presentation-maker
+is not writing a PLUGIN_GUIDE. Sandbox can't delete; operator runs:
+
+```bash
+rm /Users/aparkin/Documents/Claude/Projects/research-coscientist-dev/spike/beril-presentation-maker-skill-draft/PLUGIN_GUIDE_SKELETON.md
+```
+
+(paper-writer and atlas don't have skeleton files; only presentation-maker does.)
+
+### Why 0.7.0.4 not 0.7.1
+
+v0.7.1 is reserved for fusion (`--reviewer claude,codex` for
+paper/presentation v3) and the deferred code-quality fixes. This is
+pure docs.
+
+### Operator impact
+
+```bash
+pipx install --force git+https://github.com/ArkinLaboratory/beril-adversarial-skill.git
+beril-adversarial install-skill <BERIL_ROOT>
+beril-adversarial --version    # 0.7.0.4
+```
+
+The deployed skill files (under `<BERIL_ROOT>/.claude/skills/beril-
+adversarial/`) are byte-identical to v0.7.0.3. The new docs live
+at repo root, not in the deployed skill subtree.
+
+---
+
 ## v0.7.0.3 — 2026-05-03 (docs-only — TUTORIAL.md + HUB_INSTALL.md for May 7 participant readiness)
 
 Adds the two participant-facing docs that the other 3 BERIL plug-in

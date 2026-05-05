@@ -62,6 +62,20 @@ No breaking changes to existing `--type plan` or `--type project`
 modes. `--type paper` did break in v0.6.0 (per-draft layout required;
 flat-file rejected with migration message).
 
+## Documentation map
+
+| Doc | Audience | What's in it |
+|---|---|---|
+| **[TUTORIAL.md](TUTORIAL.md)** | Researcher using `/beril-adversarial` on the BERIL hub | Skill-specific: reading findings, the 8/10 detection classes, the `central_objection` killshot, `citation_id` semantics, iteration patterns. **Defers cross-skill install/configure to PARTICIPANT-RUNBOOK below.** |
+| **[HUB_INSTALL.md](HUB_INSTALL.md)** | Operator deploying on JupyterHub | 3-step install runbook (pipx + install-skill + configure), first-run validation queries, slash command verification, upgrading, uninstalling, hub-specific troubleshooting. |
+| **[CONTRACT.md](CONTRACT.md)** | Integrator consuming this skill's output (paper-writer, presentation-maker, future skills) | Schema family compatibility matrix, severity vocabulary mapping, v0.7.0 migration section, consumer-side smoke test pattern. **Read this first if you're integrating.** |
+| **[RELEASE_NOTES.md](RELEASE_NOTES.md)** | Anyone tracking changes | Version-by-version changelog from v0.4.x → v0.7.x with migration notes per release. |
+| **[LAYOUT.md](LAYOUT.md)** | Maintainer | Directory and file organization. |
+| **[SCHEMA_V3_DECISIONS.md](SCHEMA_V3_DECISIONS.md)** | Schema designer / consumer wanting design rationale | Why v3 looks the way it does; D1-D6, C1-C3, G1-G5 implementation contracts. |
+| Cross-skill: **[PARTICIPANT-RUNBOOK.md](https://github.com/ArkinLaboratory/beril-presentation-maker-skill/blob/main/docs/cross-skill/PARTICIPANT-RUNBOOK.md)** | Researcher using ANY of the 4 BERIL plug-in skills (paper-writer / presentation-maker / adversarial / atlas) | Hub workflow integration (`/berdl_start` → install → configure → run any skill), recovery, cost. |
+| Reference: [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md) | Reader who wants the full story in one doc | Comprehensive single-doc reference. Per the May 2026 cross-skill doc-consistency agreement, this is no longer a target for new writing — granular docs above are canonical. Kept for completeness. |
+| Historical: [SCHEMA_V2_DECISIONS.md](SCHEMA_V2_DECISIONS.md), [SCHEMA_V2_PAPER_DECISIONS.md](SCHEMA_V2_PAPER_DECISIONS.md), [SPEC_TYPE_PRESENTATION.md](SPEC_TYPE_PRESENTATION.md), [V0_4_0_PUNCH_LIST.md](V0_4_0_PUNCH_LIST.md) | Archaeology — design rationale for older releases | Each carries a HISTORICAL banner pointing at the current canonical doc. |
+
 ## Quick start
 
 There are **two ways to invoke a review** — pick the one that fits

@@ -1,5 +1,13 @@
 # beril-adversarial — Plugin Guide
 
+> **NOTE (2026-05-05):** This is the comprehensive single-doc reference, kept for readers who want the full story in one read. **If you're new, start with one of the granular docs instead** — they're scoped to specific audiences and don't drift against each other:
+> - **[TUTORIAL.md](TUTORIAL.md)** — researcher using the reviewer (skill-specific; defers cross-skill flow to PARTICIPANT-RUNBOOK).
+> - **[HUB_INSTALL.md](HUB_INSTALL.md)** — operator deploying on JupyterHub.
+> - **[CONTRACT.md](CONTRACT.md)** — integrator consuming the JSON output.
+> - **[PARTICIPANT-RUNBOOK.md](https://github.com/ArkinLaboratory/beril-presentation-maker-skill/blob/main/docs/cross-skill/PARTICIPANT-RUNBOOK.md)** — cross-skill participant flow across all 4 BERIL plug-in skills.
+>
+> Per the cross-skill doc-consistency agreement (May 2026), `PLUGIN_GUIDE.md` is no longer a target for new writing — it's preserved here as adversarial-specific reference, not as a uniform pattern. The granular docs above are the canonical entry points.
+
 End-to-end guide to installing, configuring, testing, and operating the `beril-adversarial` skill within a BERIL deployment. Covers the BERIL hub workflow, the four review modes, consumer-facing integration patterns, and troubleshooting.
 
 > **Audience.** Researchers using BERIL on the JupyterHub or a local fork, integrators wiring this skill into other skills' orchestrators, and operators deploying it on shared infrastructure. Not the design rationale — for that read [`SCHEMA_V3_DECISIONS.md`](SCHEMA_V3_DECISIONS.md) and [`CONTRACT.md`](CONTRACT.md).
