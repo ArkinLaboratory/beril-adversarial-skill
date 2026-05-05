@@ -1,5 +1,14 @@
 # beril-adversarial-skill v0.4.0 punch list
 
+> **HISTORICAL — v0.4.0 release cycle (2026-04-28).** This punch
+> list captured Tier A → Tier E work for the original
+> `--type presentation` shipping. All tiers shipped successfully
+> at v0.4.0; the schema and prompts have evolved through v0.5 →
+> v0.6 → v0.7. See [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the
+> full v0.4.x → v0.7.x trajectory and [`CONTRACT.md`](CONTRACT.md)
+> for the current consumer-facing interop. This doc is preserved
+> for archaeological context.
+
 **Goal:** ship `--type presentation` per `SPEC_TYPE_PRESENTATION.md`.
 **Pattern:** tiered-with-deps + smoke-at-gates (paper-writer v0.1.0
 playbook).

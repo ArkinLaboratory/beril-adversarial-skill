@@ -304,7 +304,7 @@ SEVERITY_TO_LEGACY = {"P0": "critical", "P1": "important",
 
 review = json.load(open("audit/adversarial_review.json"))
 counts = {"critical": 0, "important": 0, "suggested": 0,
-          "narrative_weakness": 0}
+          "central_objection": 0}
 for f in review["findings"]:
     counts[SEVERITY_TO_LEGACY[f["severity"]]] += 1
 ```

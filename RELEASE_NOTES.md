@@ -2,6 +2,102 @@
 
 ---
 
+## v0.7.0.2 — 2026-05-03 (release-cleanliness — adversarial audit follow-up)
+
+Docs + cleanup-only release closing gaps surfaced by a 4-agent
+adversarial audit (code, architecture docs, user docs, repo
+cleanliness) ahead of the May 7 stress-test event. No production
+code changes; no schema/CLI changes.
+
+### Fixed — version-string staleness
+
+- `README.md` Status header was stuck at "v0.6.2" — bumped to
+  v0.7.0.2 + refreshed highlights to reflect the v0.7.0 schema
+  bundle (central_objection rename, citation_reality on
+  presentation, --output honored), v0.7.0.1 hub discovery, and
+  this v0.7.0.2 cleanup.
+- `SKILL.md` (deployed skill doc) status header was stuck at
+  "v0.6.x — production cycle" — bumped to "v0.7.x — current"
+  with v3 schema names. Affects what the in-hub Claude Code agent
+  reads about the skill's status; re-install required to refresh.
+- `tools/adversarial_review.sh` `--help` text claimed default
+  model is `claude-sonnet-4-20250514` — actual default since
+  v0.5.1 has been `claude-sonnet-4-6`. Usage text now matches
+  the constant.
+
+### Fixed — CONTRACT.md Python example KeyError
+
+The severity-mapping example would `KeyError` on copy-paste against
+real v3 output. The `SEVERITY_TO_LEGACY` dict was correctly mapping
+`"info" → "central_objection"` (post-v0.7.0 rename) but the `counts`
+dict initializer still had `"narrative_weakness": 0` as a key. Fixed
+the initializer key. Caught by adversarial-audit Agent 2.
+
+### Added — HISTORICAL banners on superseded design docs
+
+- `SCHEMA_V2_DECISIONS.md` (v0.5.0 design; superseded by v3) now
+  has a prominent banner at the top pointing readers at
+  `SCHEMA_V3_DECISIONS.md` and `CONTRACT.md` for current state.
+- `SCHEMA_V2_PAPER_DECISIONS.md` (v0.6.0 design; superseded by
+  v3) gets the same treatment.
+- `V0_4_0_PUNCH_LIST.md` (v0.4.0 release-cycle artifact) gets a
+  HISTORICAL banner pointing at `RELEASE_NOTES.md` for the
+  trajectory.
+
+These docs stay in place rather than moving to an `archive/`
+subdirectory — they're useful archaeological context for
+understanding why v3 looks the way it does. The banners prevent
+new readers from confusing them with current design.
+
+### NOT in this release (deferred)
+
+Adversarial-audit findings deferred to v0.7.1:
+- Code: review.py exception swallowing, configure.py silent
+  failure, subprocess.run stdin handling, bash BERIL_ROOT cd
+  failure mode (all P0/P1 from code review; real but not
+  release-blocking; will fix alongside fusion).
+- Repo: `dist/` and `.commit-message-*.txt` are tracked despite
+  being in .gitignore. **Operator action needed** — see commit
+  message for the `git rm --cached` batch (one-shot cleanup).
+- Tutorial gaps: README example reordering (auto-discovery first),
+  output interpretation tutorial, dry-run mode, sharing findings,
+  troubleshooting timeouts. To be informed by what stress-test
+  participants actually struggle with.
+- Standard files: CONTRIBUTING.md, SECURITY.md, GitHub Actions CI.
+  Standard release hygiene; not blocking the May 7 cycle.
+
+### Operator impact
+
+```bash
+pipx install --force git+https://github.com/ArkinLaboratory/beril-adversarial-skill.git
+beril-adversarial install-skill <BERIL_ROOT>
+beril-adversarial --version    # 0.7.0.2
+```
+
+The deployed skill files differ from v0.7.0.1 only in SKILL.md
+(version-string refresh + status-header rewrite). Consumer code
+needs no changes; v0.7.0 migration TL;DR (rename, --output audit,
+smoke test, citation_reality routing for presentation-maker)
+unchanged.
+
+### Operator one-time cleanup (recommended)
+
+To remove the 6 historical `.commit-message-*.txt` files and 14
+historical `dist/*.whl` files from git tracking (they're already
+in .gitignore but were tracked from earlier commits):
+
+```bash
+cd /path/to/beril-adversarial-skill
+git rm --cached .commit-message-*.txt
+git rm --cached dist/*.whl
+git commit -m "chore: untrack historical commit-message files + dist wheels (already in .gitignore)"
+git push origin main
+```
+
+This is optional housekeeping; doesn't affect functionality.
+
+---
+
 ## v0.7.0.1 — 2026-05-03 (docs-only — project & draft discovery for BERIL hub workflow)
 
 Doc-only fast follow to v0.7.0 to smooth the project/draft discovery

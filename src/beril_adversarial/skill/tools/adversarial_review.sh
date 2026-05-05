@@ -81,7 +81,7 @@ Options:
   --reviewer R                claude | codex | claude,codex
                               (claude,codex runs both in parallel and
                               fuses the results; default: claude)
-  --model <model_id>          Model override (default: claude-sonnet-4-20250514
+  --model <model_id>          Model override (default: claude-sonnet-4-6
                               for claude; gpt-5.4 for codex)
   --beril-root <path>         BERIL repository root (default: auto-detect)
   --consolidate               Skip review; synthesize all numbered

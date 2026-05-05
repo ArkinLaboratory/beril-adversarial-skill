@@ -27,16 +27,18 @@ install + configuration. The review itself is a shell script
 (`tools/adversarial_review.sh`) that invokes `claude` or `codex` with
 the right system prompt — same pattern as BERIL's `tools/review.sh`.
 
-**Status: v0.6.x — production cycle.** Single-array v2 schemas
-(`adversarial-review-presentation.v2`,
-`adversarial-review-paper.v2`) with auto-correcting validator
-(`tools/validate_presentation_review.py`) and `beril-adversarial
-review` Python CLI subcommand. Cross-skill interop documented in
-`CONTRACT.md`. Active integration with `beril-paper-writer` v0.6+
-and `beril-presentation-maker` v0.3+. Default reviewer model is
-Claude Sonnet 4.6 (`claude-sonnet-4-6`). Iterative improvement
-ongoing — see `RELEASE_NOTES.md` for the v0.4.x → v0.6.x
-trajectory.
+**Status: v0.7.x — current.** Single-array v3 schemas
+(`adversarial-review-presentation.v3`,
+`adversarial-review-paper.v3`) with auto-correcting validator
+(`tools/validate_presentation_review.py`), v2 schemas accepted
+with deprecation warning for forensic compatibility, and
+`beril-adversarial review` Python CLI subcommand. Cross-skill
+interop documented in `CONTRACT.md` (read the v0.7.0 migration
+section first if you're a consumer). Active integration with
+`beril-paper-writer` v0.6+ and `beril-presentation-maker` v0.3+.
+Default reviewer model is Claude Sonnet 4.6 (`claude-sonnet-4-6`).
+Iterative improvement ongoing — see `RELEASE_NOTES.md` for the
+v0.4.x → v0.7.x trajectory.
 
 ## Two ways to invoke a review
 

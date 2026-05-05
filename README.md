@@ -12,9 +12,29 @@ flagging of inferential leaps.
 
 ## Status
 
-**Current: v0.6.2** — see `RELEASE_NOTES.md` for the full v0.4.x →
-v0.6.x trajectory. Highlights since v0.4.0:
+**Current: v0.7.0.2** — see `RELEASE_NOTES.md` for the full v0.4.x →
+v0.7.x trajectory. Highlights since v0.4.0:
 
+- **v0.7.0 — schema bundle (v3).** Three breaking changes bundled:
+  rename `narrative_weakness` → `central_objection` (same role:
+  one finding per review, severity=info, deck/paper-wide synthesis;
+  v3 docs containing the dead class name are HARD-REJECTED by the
+  validator); NEW `citation_reality` class on presentation v3 for
+  parity with paper (detects fabricated/drifting citations on
+  slides with footers, in-text markers, or `provenance_pin`);
+  `--output` flag now HONORED for `--type paper|presentation`
+  (was silently ignored in v0.6.x). Argparse migration hint
+  surfaces tailored guidance when consumers invoke the v0.5.x-shape
+  CLI. v3 prompts adversarially reviewed by 3 parallel agents
+  before validator code; design contracts D1-D6, C1-C3, G1-G5
+  captured in `SCHEMA_V3_DECISIONS.md`. v0.7.0.1 added 4-signal
+  project resolution tree in `SKILL.md` (git branch is the
+  strongest signal on the BERIL hub) + draft auto-detection +
+  surface terminology clarification (slash command vs Python CLI).
+  v0.7.0.2 closed release-cleanliness gaps surfaced by adversarial
+  audit: HISTORICAL banners on legacy schema docs, CONTRACT.md
+  Python example KeyError fix, README/SKILL version-string
+  refresh, bash usage default-model accuracy.
 - **v0.6.x — paper alignment + programmatic CLI subcommand.** Paper
   reviewer rewritten to read paper-writer v0.6+ per-draft directory
   layout (`papers/draft_N/manuscript.md` + `00_throughline.md` +

@@ -1,5 +1,14 @@
 # adversarial-review-paper schema v2 — design decisions
 
+> **HISTORICAL — v0.6.0 design.** Paper v2 was deprecated as of
+> v0.7.0 (2026-05-03). The current paper schema is **v3** — see
+> [`SCHEMA_V3_DECISIONS.md`](SCHEMA_V3_DECISIONS.md) for the active
+> design (which consolidated paper + presentation v3 into one doc)
+> and [`CONTRACT.md`](CONTRACT.md) §"v0.7.0 migration" for consumer
+> migration guidance. v2 paper docs continue to be readable by the
+> validator (forensic compatibility); v3 is what new runs emit.
+> This doc is preserved for archaeological context.
+
 **Status:** Decisions for v0.6.0 implementation. Author: Claude (this
 session, 2026-05-02). Mirrors `SCHEMA_V2_DECISIONS.md` (presentation
 schema decisions for v0.5.0).
