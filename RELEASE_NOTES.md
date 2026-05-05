@@ -2,6 +2,51 @@
 
 ---
 
+## v0.7.0.3 — 2026-05-03 (docs-only — TUTORIAL.md + HUB_INSTALL.md for May 7 participant readiness)
+
+Adds the two participant-facing docs that the other 3 BERIL plug-in
+skills had established as a pattern but adversarial was missing:
+
+- **`TUTORIAL.md`** — researcher-audience step-by-step. Matches the
+  style of `beril-paper-writer`'s and `beril-atlas`'s tutorials.
+  Covers prerequisites → install in 5 lines → first review →
+  reading the output → iteration patterns → cost management →
+  troubleshooting → quick reference. ~350 lines.
+- **`HUB_INSTALL.md`** — operator runbook for JupyterHub deployment.
+  Matches the style of `beril-presentation-maker`'s hub install
+  doc. Covers prerequisites → 3-step install (pipx + install-skill
+  + configure) → first-run validation with verification queries →
+  slash command verification → upgrading → uninstalling →
+  troubleshooting → hub-specific notes → subcommand reference.
+  ~370 lines.
+
+Both docs cross-reference `PLUGIN_GUIDE.md` (comprehensive),
+`CONTRACT.md` (consumer interop), `README.md` (overview), and
+`RELEASE_NOTES.md` (changelog) for deeper reads.
+
+### Why this is v0.7.0.3 (docs-only) and not v0.7.1
+
+v0.7.1 is reserved for fusion (`--reviewer claude,codex` for
+paper/presentation v3 schemas) and the deferred code-quality fixes
+from the v0.7.0.2 audit. v0.7.0.3 is a pure docs-only fast follow
+to v0.7.0.2 — no schema, validator, or CLI changes; just two new
+.md files.
+
+### Operator impact
+
+```bash
+pipx install --force git+https://github.com/ArkinLaboratory/beril-adversarial-skill.git
+beril-adversarial install-skill <BERIL_ROOT>
+beril-adversarial --version    # 0.7.0.3
+```
+
+The deployed skill files are byte-identical to v0.7.0.2 (the new
+docs are repo-root-level, not in the deployed skill subtree).
+Re-installing is recommended only to surface the new docs in
+GitHub clones; the in-hub agent's behavior is unchanged.
+
+---
+
 ## v0.7.0.2 — 2026-05-03 (release-cleanliness — adversarial audit follow-up)
 
 Docs + cleanup-only release closing gaps surfaced by a 4-agent
